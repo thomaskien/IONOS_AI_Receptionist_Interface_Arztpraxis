@@ -1,4 +1,144 @@
+# telepraxis-app
 
+Kompakte Ein-Datei-Webapp zur Bearbeitung eingehender JSON-Vorgänge aus dem Verzeichnis `./inbox`.
+
+## Benutzungskonzept
+
+Die App ist für mehrere Arbeitsplätze gedacht:
+
+- **Neu**: neue eingegangene Vorgänge
+- **In Bearbeitung**: nur die Vorgänge des aktuell eingestellten eigenen Arbeitsplatzes
+- **Abgeschlossen**: erledigte Vorgänge
+- **Papierkorb**: gelöschte Vorgänge, nur mit Admin-Funktion sichtbar
+
+Ein Arbeitsplatz wird oben eingetragen und lokal im Browser gespeichert. Dadurch sieht jeder Arbeitsplatz links nur seine eigenen bearbeiteten Vorgänge, während Vorgänge anderer Arbeitsplätze weiter in der mittleren Spalte sichtbar bleiben.
+
+Die App lädt die Daten regelmäßig neu und eignet sich damit für den laufenden Einsatz im Praxisalltag.
+
+## Wichtige Funktionen
+
+- Einlesen von JSON-Dateien aus `./inbox`
+- Statuswechsel: **Neu**, **In Bearbeitung**, **Abgeschlossen**
+- Markierung **Dringend**
+- Soft-Delete in den Papierkorb
+- Admin-Funktionen für **Wiederherstellen** und **endgültiges Löschen**
+- Polling-Aktualisierung alle 5 Sekunden
+- Benachrichtigungston bei neu erkannten Eingängen
+- Klick auf den Namen kopiert `Nachname, Vorname JJJJ`
+- Klick auf das Geburtsdatum kopiert das Geburtsdatum
+- Gesprächszusammenfassung in Bearbeitung ein- und ausklappbar
+- Geöffnete Zusammenfassungen bleiben trotz Refresh erhalten
+- Telefonnummern sind direkt anklickbar
+- Übermittelte Telefonnummer wird zusätzlich angezeigt
+- Lokale Speicherung von Arbeitsplatz, Ton, Sichtbarkeit von Abgeschlossen und Papierkorb
+
+## Unterstützte Inhalte
+
+Die App unterstützt die aktuell besprochenen Request-Typen des Telefonassistenten, darunter insbesondere:
+
+- Rückruf
+- Sonstiges
+- Rezeptbestellung
+- Überweisung
+- Fallback-Typen mit reduzierten Angaben
+
+## Technische Hinweise
+
+- Datei: `telepraxis-app.php`
+- Zeitzone: `Europe/Berlin`
+- Standard-Polling: `5000 ms`
+- Admin-Passwort aktuell fest im PHP-Code definiert und sollte angepasst werden
+
+## Kurzablauf
+
+1. `telepraxis-app.php` im Webroot ablegen
+2. Unterhalb davon ein Verzeichnis `inbox` mit den JSON-Dateien bereitstellen
+3. App im Browser öffnen
+4. Arbeitsplatz eintragen
+5. Vorgänge bearbeiten, abschließen oder löschen
+
+
+# telepraxis – verschlüsselter JSON-Transport
+
+## Systemaufbau
+
+Das System besteht aus zwei Seiten:
+
+### 1. Quellserver
+Auf dem Quellserver nimmt `telepraxis-receive-encrypted.php` JSON per HTTP-POST entgegen.  
+Die Daten werden **nicht im Klartext gespeichert**, sondern direkt in PHP mit einem fest eingebetteten **Public Key** verschlüsselt und als Datei im Inbox-Verzeichnis abgelegt.
+
+Beispiel:
+- PHP-Datei: `/var/www/html/telepraxis-receive-encrypted.php`
+- Ablage: `/srv/telepraxis/inbox/*.json.enc`
+
+### 2. Zielsystem
+Das Zielsystem besitzt den zugehörigen **Private Key**.  
+Ein Shell-Script holt die verschlüsselten Dateien regelmäßig per **SCP/SSH** vom Server, entschlüsselt sie lokal und legt daraus wieder normale JSON-Dateien ab.
+
+Beispiel:
+- geholt von: `root@cup.thoax.de:/srv/telepraxis/inbox/`
+- lokal entschlüsselt nach: `/Volumes/webroot/inbox/`
+
+## Sicherheitskonzept
+
+Es werden **zwei getrennte Schlüsselarten** verwendet:
+
+### Inhaltsverschlüsselung
+- **Public Key** liegt im PHP-Script
+- **Private Key** liegt nur auf dem Zielsystem
+
+Damit können die Dateien bereits auf dem Quellserver nur verschlüsselt gespeichert werden.
+
+### Transport / Zugriff
+Zusätzlich kann für SCP/SSH ein **separater SSH-Key** verwendet werden.  
+Dieser dient nur zum Holen und Löschen der Dateien, nicht zur Entschlüsselung des Inhalts.
+
+## Dateiformat
+
+Die gespeicherte Datei ist ein JSON-Wrapper mit verschlüsseltem Inhalt, z. B. mit diesen Feldern:
+
+- `cipher`
+- `ek`
+- `iv`
+- `ct`
+- `sha256`
+
+Der eigentliche Nutzinhalt steckt verschlüsselt in `ct`.
+
+## Ablauf
+
+1. Client sendet JSON an PHP
+2. PHP validiert den Request
+3. PHP erzeugt einen Datensatz mit Metadaten
+4. PHP verschlüsselt den Datensatz direkt mit dem Public Key
+5. PHP speichert eine Datei `*.json.enc`
+6. Zielsystem holt die Datei per SCP
+7. Zielsystem entschlüsselt lokal mit dem Private Key
+8. Zielsystem prüft Hash und JSON-Gültigkeit
+9. Zielsystem schreibt die entschlüsselte JSON-Datei atomisch
+10. Danach wird die verschlüsselte Datei lokal und auf dem Server gelöscht
+
+## Funktionen des Fetch-Scripts
+
+Das Shell-Script kann:
+
+- Server, Benutzer, Pfade und Ports im Header konfigurieren
+- optional einen eigenen SSH-Key verwenden
+- verschlüsselte Dateien per SCP holen
+- lokal entschlüsseln
+- SHA-256 prüfen
+- JSON validieren
+- erst nach erfolgreicher Verarbeitung löschen
+- einmalig oder im Polling-Betrieb laufen, z. B. alle 5 Sekunden
+
+## Ziel des Aufbaus
+
+Das Ziel ist, dass sensible JSON-Daten:
+
+- **auf dem Quellserver nicht im Klartext liegen**
+- **nur auf dem Zielsystem entschlüsselt werden**
+- **nach erfolgreicher Verarbeitung automatisch entfernt werden**
 
 
 # zertifikate erstellen und fetch einrichten
