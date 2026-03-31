@@ -14,13 +14,15 @@
         "medikamente": "4 Liter Medozin, 15 Zuckertabletten"
     },
     "app": {
-        "status": "abgeschlossen",
+        "status": "neu",
         "dringend": false,
         "deleted": false,
-        "status_updated_at": "2026-03-31T12:24:54+02:00",
-        "status_updated_arbeitsplatz": "Anm-links",
-        "last_action": "status_abgeschlossen",
+        "status_updated_at": "2026-03-31T13:33:07+02:00",
+        "status_updated_arbeitsplatz": "safari",
+        "last_action": "status_neu",
         "completed_at": "2026-03-31T12:24:54+02:00",
         "deleted_at": null,
         "deleted_arbeitsplatz": null,
-        "in_bearbeitung_at": "2026-03-31T1
+        "in_bearbeitung_at": "2026-03-31T12:24:49+02:00"
+    }
+}

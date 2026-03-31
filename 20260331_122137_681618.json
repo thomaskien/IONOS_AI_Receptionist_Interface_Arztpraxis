@@ -11,13 +11,15 @@
         "zusammenfassung": "Anruferin möchte einen Rückruf von Dr. Dagobert Duck bezüglich ihrer kranken Mutter, Daisy Duck, die an Krebs leidet, schwach ist und Schwierigkeiten hat, Treppen zu steigen. Anruferin macht sich Sorgen und schläft schlecht."
     },
     "app": {
-        "status": "in_bearbeitung",
+        "status": "neu",
         "dringend": true,
         "deleted": false,
-        "status_updated_at": "2026-03-31T12:23:22+02:00",
-        "status_updated_arbeitsplatz": "safari",
-        "last_action": "status_in_bearbeitung",
+        "status_updated_at": "2026-03-31T13:39:24+02:00",
+        "status_updated_arbeitsplatz": "Anm-links",
+        "last_action": "status_neu",
         "completed_at": null,
         "deleted_at": null,
         "deleted_arbeitsplatz": null,
-        "in_bearbeitung_at": "2026-03-31T12:23
+        "in_bearbeitung_at": "2026-03-31T13:33:22+02:00"
+    }
+}
