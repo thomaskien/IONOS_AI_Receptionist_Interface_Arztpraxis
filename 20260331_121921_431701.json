@@ -1,0 +1,28 @@
+{
+    "received_at": "2026-03-31T12:19:21+02:00",
+    "remote_ip": "34.96.62.57",
+    "user_agent": "Go-http-client/1.1",
+    "typ": "rezeptbestellung",
+    "payload": {
+        "typ": "rezeptbestellung",
+        "id": "anonymous",
+        "telefon": "012345",
+        "zusammenfassung": "Rezeptbestellung für 4 Liter Medozin und 15 Zuckertabletten. Geburtsdatum 11.11.1911.",
+        "vorname": "Pippi Lotta",
+        "nachname": "Langstrumpf",
+        "geburtsdatum": "11.11.1911",
+        "medikamente": "4 Liter Medozin, 15 Zuckertabletten"
+    },
+    "app": {
+        "status": "abgeschlossen",
+        "dringend": false,
+        "deleted": false,
+        "status_updated_at": "2026-03-31T12:24:54+02:00",
+        "status_updated_arbeitsplatz": "Anm-links",
+        "last_action": "status_abgeschlossen",
+        "completed_at": "2026-03-31T12:24:54+02:00",
+        "deleted_at": null,
+        "deleted_arbeitsplatz": null,
+        "in_bearbeitung_at": "2026-03-31T12:24:49+02:00"
+    }
+}

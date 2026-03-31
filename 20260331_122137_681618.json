@@ -1,0 +1,25 @@
+{
+    "received_at": "2026-03-31T12:21:37+02:00",
+    "remote_ip": "34.96.62.57",
+    "user_agent": "Go-http-client/1.1",
+    "typ": "rueckruf_tel_grund",
+    "payload": {
+        "typ": "rueckruf_tel_grund",
+        "id": "anonymous",
+        "telefon": "0155555555",
+        "grund": "Anruferin möchte einen Rückruf von Dr. Dagobert Duck bezüglich ihrer kranken Mutter, Daisy Duck, die an Krebs leidet, schwach ist und Schwierigkeiten hat, Treppen zu steigen. Anruferin macht sich Sorgen und schläft schlecht.",
+        "zusammenfassung": "Anruferin möchte einen Rückruf von Dr. Dagobert Duck bezüglich ihrer kranken Mutter, Daisy Duck, die an Krebs leidet, schwach ist und Schwierigkeiten hat, Treppen zu steigen. Anruferin macht sich Sorgen und schläft schlecht."
+    },
+    "app": {
+        "status": "in_bearbeitung",
+        "dringend": true,
+        "deleted": false,
+        "status_updated_at": "2026-03-31T12:23:22+02:00",
+        "status_updated_arbeitsplatz": "safari",
+        "last_action": "status_in_bearbeitung",
+        "completed_at": null,
+        "deleted_at": null,
+        "deleted_arbeitsplatz": null,
+        "in_bearbeitung_at": "2026-03-31T12:23:22+02:00"
+    }
+}
