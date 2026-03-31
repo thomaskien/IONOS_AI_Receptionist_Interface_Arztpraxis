@@ -77,7 +77,7 @@ Das Zielsystem besitzt den zugehörigen **Private Key**.
 Ein Shell-Script holt die verschlüsselten Dateien regelmäßig per **SCP/SSH** vom Server, entschlüsselt sie lokal und legt daraus wieder normale JSON-Dateien ab.
 
 Beispiel:
-- geholt von: `root@cup.thoax.de:/srv/telepraxis/inbox/`
+- geholt von: `root@#servername#:/srv/telepraxis/inbox/`
 - lokal entschlüsselt nach: `/Volumes/webroot/inbox/`
 
 ## Sicherheitskonzept
