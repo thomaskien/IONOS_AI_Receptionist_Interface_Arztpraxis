@@ -2,6 +2,9 @@
 
 Kompakte Ein-Datei-Webapp zur Bearbeitung eingehender JSON-Vorgänge aus dem Verzeichnis `./inbox`.
 
+<img src="Screenshot 2026-03-31 at 13-40-44 telepraxis-app v2.1.png" alt="drawing" width="1000"/>
+
+
 ## Benutzungskonzept
 
 Die App ist für mehrere Arbeitsplätze gedacht:
