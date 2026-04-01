@@ -34,6 +34,11 @@ Die App lädt die Daten regelmäßig neu und eignet sich damit für den laufende
 - Telefonnummern sind direkt anklickbar
 - Übermittelte Telefonnummer wird zusätzlich angezeigt
 - Lokale Speicherung von Arbeitsplatz, Ton, Sichtbarkeit von Abgeschlossen und Papierkorb
+- **Kontaktformular mit identischem Endpunkt**
+
+<img src="Screenshot 2026-04-01 at 09-03-13 Telepraxis Kontakt.png" alt="drawing" width="600"/>
+
+
 
 ## Unterstützte Inhalte
 
