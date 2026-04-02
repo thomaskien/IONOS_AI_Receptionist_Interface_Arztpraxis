@@ -65,6 +65,20 @@ Die App unterstützt die aktuell besprochenen Request-Typen des Telefonassistent
 4. Arbeitsplatz eintragen
 5. Vorgänge bearbeiten, abschließen oder löschen
 
+# sicherheit
+- OTP wird durch kontakt.php generiert und kann nur einmal verwendet werden
+<pre>
+pt-get update
+apt-get install -y php-sqlite3
+systemctl restart apache2
+</pre>
+- IONOS kontaktiert per
+<pre>
+IONOS Tool Header (statisch):
+
+Name: X-TP-Token
+Value: der Wert aus $IONOS_PSK (nachdem du CHANGE_ME... ersetzt hast)
+</pre>
 
 # telepraxis – verschlüsselter JSON-Transport
 
