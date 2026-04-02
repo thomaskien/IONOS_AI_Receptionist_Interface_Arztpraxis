@@ -65,6 +65,12 @@ Die App unterstützt die aktuell besprochenen Request-Typen des Telefonassistent
 4. Arbeitsplatz eintragen
 5. Vorgänge bearbeiten, abschließen oder löschen
 
+## Kommentarfunktion
+
+<img src="Screenshot 2026-04-02 at 14-37-32 telepraxis-app v2.6.png" alt="drawing" width="800"/>
+
+
+
 # sicherheit
 - OTP wird durch kontakt.php generiert und kann nur einmal verwendet werden
 <pre>
