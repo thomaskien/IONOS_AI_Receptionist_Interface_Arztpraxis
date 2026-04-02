@@ -1,9 +1,23 @@
 <?php
 /*
  * telepraxis-app.php
- * Version: 2.1
+ * Version: 2.4
  *
  * Fortgeführter Changelog (niemals entfernen, nur ergänzen):
+ * - v2.4 (2026-04-02)
+ *   - Kartenauswahl sprachlich wieder auf „Auswählen“ bzw. „Alle auswählen“ umgestellt.
+ *   - Tabellenansicht verschlankt: Checkboxen ohne Begleittext, keine Telefonspalte mehr, Eingangszeitstempel nun unter dem Namen und Vorschautext stets sichtbar.
+ *   - Tabellenzeilen-Aktionen je Bereich angepasst: Neu nur noch „Dringend“, Abgeschlossen „Wiederherstellen“ und „Löschen“, Papierkorb „Wiederherstellen“ und „Löschen“.
+ * - v2.3 (2026-04-02)
+ *   - Mittlere Spalte, Abgeschlossen und Papierkorb können nun jeweils zwischen Karten- und Tabellenansicht umgeschaltet werden.
+ *   - Tabellenzeilen sind umrandet, nutzen die gleiche Status-Farbgebung wie die Karten und erhalten die jeweils besprochenen Zeilen- und Sammelaktionen.
+ *   - Abgeschlossen unterstützt nun Checkboxen sowie die Sammelaktionen „Alle markieren“, „Wiederherstellen“ und „Löschen“.
+ *   - Papierkorb unterstützt nun Checkboxen, „Alle auswählen“, „Wiederherstellen“ und „Endgültig löschen“ mit Rückfrage.
+ *   - Darstellungsbug im Papierkorb behoben: Der Bereich ist nun sauber scrollbar, auch wenn viele Einträge vorhanden sind.
+ * - v2.2 (2026-04-02)
+ *   - Mittlere Spalte erhielt Checkboxen sowie die Kopfzeilen-Aktionen „Bearbeiten“ und „Löschen“ für markierte Einträge.
+ *   - Papierkorb erhielt Checkboxen sowie die Kopfzeilen-Aktionen „Alle auswählen“, „Wiederherstellen“ und „Endgültig löschen“.
+ *   - Browsertitel zeigt nun die aktuelle Anzahl neuer Vorgänge an und aktualisiert sich beim Polling.
  * - v2.1 (2026-03-31)
  *   - Benachrichtigungston prägnanter umgesetzt: gleicher Ton nun viermal direkt hintereinander, der vierte Ton dreimal so lang.
  *   - Namenszeile im Header nun in allen Spalten linksbündig dargestellt.
@@ -46,7 +60,7 @@ session_start();
 date_default_timezone_set('Europe/Berlin');
 
 const TELEPRAXIS_APP_NAME = 'telepraxis-app';
-const TELEPRAXIS_APP_VERSION = '2.1';
+const TELEPRAXIS_APP_VERSION = '2.4';
 const TELEPRAXIS_INBOX_DIR = __DIR__ . DIRECTORY_SEPARATOR . 'inbox';
 const TELEPRAXIS_POLL_INTERVAL_MS = 5000;
 const TELEPRAXIS_DEFAULT_TIMEZONE = 'Europe/Berlin';
@@ -783,6 +797,11 @@ $isAdmin = tp_is_admin();
         .btn-primary { background: #edf4ff; border-color: #c4d8f5; }
         .btn-danger { background: #fff3f3; border-color: #f0c9c9; }
         .btn-admin { background: #f4efff; border-color: #d7c9f0; }
+        .btn.active-view {
+            background: #eaf1ff;
+            border-color: #b9c9eb;
+            font-weight: 700;
+        }
         .stats {
             display: flex;
             flex-wrap: wrap;
@@ -826,7 +845,8 @@ $isAdmin = tp_is_admin();
         .columns.hide-completed {
             grid-template-columns: minmax(310px, 1.1fr) minmax(450px, 2fr);
         }
-        .column {
+        .column,
+        .trash-panel {
             background: rgba(255,255,255,0.55);
             border: 1px solid var(--panel-border);
             border-radius: 18px;
@@ -836,28 +856,55 @@ $isAdmin = tp_is_admin();
             overflow: hidden;
         }
         .column.hidden { display: none; }
+        .trash-panel {
+            display: none;
+            flex: 1;
+            min-height: 0;
+        }
+        .trash-panel.show { display: flex; }
         .column-header {
             padding: 14px 16px;
             border-bottom: 1px solid var(--panel-border);
             background: rgba(255,255,255,0.75);
             display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .column-header-top,
+        .column-header-actions {
+            display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
+            gap: 10px;
+            flex-wrap: wrap;
         }
         .column-title { margin: 0; font-size: 1rem; }
         .column-count { color: var(--muted); font-size: 0.92rem; }
-        .column-body {
+        .header-button-group,
+        .view-toggle {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+        .column-body,
+        .trash-body {
             padding: 14px;
             overflow: auto;
             display: flex;
             flex-direction: column;
             gap: 12px;
             min-height: 0;
+            flex: 1;
         }
         .middle-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 12px;
+        }
+        .stack-list {
+            display: flex;
+            flex-direction: column;
             gap: 12px;
         }
         .card {
@@ -891,6 +938,23 @@ $isAdmin = tp_is_admin();
             margin-top: 0;
         }
         .right-column .card { min-height: 200px; }
+        .selection-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-height: 20px;
+        }
+        .selection-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: var(--muted);
+        }
+        .selection-label.only-checkbox {
+            gap: 0;
+        }
         .card-header-box {
             width: 100%;
             border: 1px solid var(--panel-border);
@@ -917,9 +981,6 @@ $isAdmin = tp_is_admin();
             flex: 1;
         }
         .name-line {
-            justify-content: center;
-        }
-        .name-line.name-line-left {
             justify-content: flex-start;
         }
         .name-button {
@@ -936,7 +997,7 @@ $isAdmin = tp_is_admin();
             align-items: baseline;
             gap: 6px;
             min-width: 0;
-            text-align: inherit;
+            text-align: left;
         }
         .name-main {
             font-weight: 700;
@@ -1017,10 +1078,6 @@ $isAdmin = tp_is_admin();
             background: rgba(255,255,255,0.58);
             padding: 10px 12px;
         }
-        .detail-block h4 {
-            margin: 0 0 8px 0;
-            font-size: 0.92rem;
-        }
         .detail-block p {
             margin: 8px 0 0 0;
             white-space: pre-wrap;
@@ -1048,25 +1105,86 @@ $isAdmin = tp_is_admin();
             text-align: left;
         }
         .transmitted-row strong { color: var(--text); }
-        .actions {
+        .actions,
+        .actions-inline {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
+        }
+        .actions {
             margin-top: auto;
         }
-        .trash-panel {
-            display: none;
-            background: rgba(255,255,255,0.55);
-            border: 1px solid var(--panel-border);
-            border-radius: 18px;
-            overflow: hidden;
+        .table-wrap {
+            overflow: auto;
+            min-height: 0;
         }
-        .trash-panel.show { display: flex; flex-direction: column; }
-        .trash-body {
-            padding: 14px;
+        .entry-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0 10px;
+            table-layout: fixed;
+        }
+        .entry-table th {
+            text-align: left;
+            font-size: 0.83rem;
+            color: var(--muted);
+            padding: 0 10px 4px 10px;
+            font-weight: 700;
+        }
+        .entry-table td {
+            padding: 10px;
+            vertical-align: top;
+            border-top: 1px solid var(--panel-border);
+            border-bottom: 1px solid var(--panel-border);
+            background: var(--panel);
+        }
+        .entry-table td:first-child {
+            border-left: 1px solid var(--panel-border);
+            border-radius: 12px 0 0 12px;
+        }
+        .entry-table td:last-child {
+            border-right: 1px solid var(--panel-border);
+            border-radius: 0 12px 12px 0;
+        }
+        .entry-table tr.status-neu td { background: var(--green-bg); }
+        .entry-table tr.status-in_bearbeitung td { background: var(--yellow-bg); }
+        .entry-table tr.status-abgeschlossen td { background: var(--gray-bg); }
+        .entry-table tr.urgent td {
+            border-top-color: var(--red);
+            border-bottom-color: var(--red);
+        }
+        .entry-table tr.urgent td:first-child { border-left-color: var(--red); }
+        .entry-table tr.urgent td:last-child { border-right-color: var(--red); }
+        .table-checkbox-cell { width: 52px; }
+        .table-category-cell { width: 120px; }
+        .table-name-cell { width: 220px; }
+        .table-actions-cell { width: 220px; }
+        .table-body-cell,
+        .table-name-wrap {
+            min-width: 0;
+        }
+        .table-name-wrap {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            align-items: flex-start;
+            gap: 4px;
+            min-width: 0;
+        }
+        .table-name-mainline {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            flex-wrap: wrap;
+            min-width: 0;
+        }
+        .table-name-meta {
+            font-size: 0.84rem;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+        .table-body-text {
+            white-space: pre-wrap;
+            line-height: 1.35;
         }
         .empty {
             border: 1px dashed var(--panel-border);
@@ -1131,35 +1249,73 @@ $isAdmin = tp_is_admin();
     <div class="columns" id="columns">
         <section class="column left-column">
             <div class="column-header">
-                <h2 class="column-title">In Bearbeitung</h2>
-                <div class="column-count" id="count-left">0</div>
+                <div class="column-header-top">
+                    <h2 class="column-title">In Bearbeitung</h2>
+                    <div class="column-count" id="count-left">0</div>
+                </div>
             </div>
             <div class="column-body" id="left-column"></div>
         </section>
 
         <section class="column middle-column">
             <div class="column-header">
-                <h2 class="column-title">Neu</h2>
-                <div class="column-count" id="count-middle">0</div>
+                <div class="column-header-top">
+                    <h2 class="column-title">Neu</h2>
+                    <div class="column-count" id="count-middle">0</div>
+                </div>
+                <div class="column-header-actions">
+                    <div class="header-button-group">
+                        <button class="btn btn-primary" id="middle-batch-edit" type="button">Bearbeiten</button>
+                        <button class="btn btn-danger" id="middle-batch-delete" type="button">Löschen</button>
+                    </div>
+                    <div class="view-toggle">
+                        <button class="btn" type="button" data-view-set="middle" data-view="cards">Karten</button>
+                        <button class="btn" type="button" data-view-set="middle" data-view="table">Tabelle</button>
+                    </div>
+                </div>
             </div>
-            <div class="column-body">
-                <div class="middle-grid" id="middle-column"></div>
-            </div>
+            <div class="column-body" id="middle-body"></div>
         </section>
 
         <section class="column right-column" id="completed-column">
             <div class="column-header">
-                <h2 class="column-title">Abgeschlossen</h2>
-                <div class="column-count" id="count-right">0</div>
+                <div class="column-header-top">
+                    <h2 class="column-title">Abgeschlossen</h2>
+                    <div class="column-count" id="count-right">0</div>
+                </div>
+                <div class="column-header-actions">
+                    <div class="header-button-group">
+                        <button class="btn" id="right-select-all" type="button">Alle auswählen</button>
+                        <button class="btn btn-primary" id="right-batch-restore" type="button">Wiederherstellen</button>
+                        <button class="btn btn-danger" id="right-batch-delete" type="button">Löschen</button>
+                    </div>
+                    <div class="view-toggle">
+                        <button class="btn" type="button" data-view-set="right" data-view="cards">Karten</button>
+                        <button class="btn" type="button" data-view-set="right" data-view="table">Tabelle</button>
+                    </div>
+                </div>
             </div>
-            <div class="column-body" id="right-column"></div>
+            <div class="column-body" id="right-body"></div>
         </section>
     </div>
 
     <section class="trash-panel" id="trash-panel">
         <div class="column-header">
-            <h2 class="column-title">Papierkorb</h2>
-            <div class="column-count" id="count-trash">0</div>
+            <div class="column-header-top">
+                <h2 class="column-title">Papierkorb</h2>
+                <div class="column-count" id="count-trash">0</div>
+            </div>
+            <div class="column-header-actions">
+                <div class="header-button-group">
+                    <button class="btn" id="trash-select-all" type="button">Alle auswählen</button>
+                    <button class="btn btn-primary" id="trash-batch-restore" type="button">Wiederherstellen</button>
+                    <button class="btn btn-danger" id="trash-batch-delete" type="button">Endgültig löschen</button>
+                </div>
+                <div class="view-toggle">
+                    <button class="btn" type="button" data-view-set="trash" data-view="cards">Karten</button>
+                    <button class="btn" type="button" data-view-set="trash" data-view="table">Tabelle</button>
+                </div>
+            </div>
         </div>
         <div class="trash-body" id="trash-body"></div>
     </section>
@@ -1168,13 +1324,25 @@ $isAdmin = tp_is_admin();
 <script>
 (() => {
     const csrfToken = <?= json_encode($csrfToken, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const baseTitle = <?= json_encode(TELEPRAXIS_APP_NAME . ' v' . TELEPRAXIS_APP_VERSION, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     let currentCsrf = csrfToken;
     let isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
     let audioContext = null;
     let lastSeenIds = new Set();
     let initialized = false;
     let pollTimer = null;
+    let lastEntries = [];
     const openSummaryFiles = new Set();
+    const selectedFiles = {
+        middle: new Set(),
+        right: new Set(),
+        trash: new Set(),
+    };
+    const visibleFiles = {
+        middle: new Set(),
+        right: new Set(),
+        trash: new Set(),
+    };
 
     const els = {
         workplaceInput: document.getElementById('workplace-input'),
@@ -1188,8 +1356,8 @@ $isAdmin = tp_is_admin();
         columns: document.getElementById('columns'),
         completedColumn: document.getElementById('completed-column'),
         leftColumn: document.getElementById('left-column'),
-        middleColumn: document.getElementById('middle-column'),
-        rightColumn: document.getElementById('right-column'),
+        middleBody: document.getElementById('middle-body'),
+        rightBody: document.getElementById('right-body'),
         trashPanel: document.getElementById('trash-panel'),
         trashBody: document.getElementById('trash-body'),
         countLeft: document.getElementById('count-left'),
@@ -1198,6 +1366,14 @@ $isAdmin = tp_is_admin();
         countTrash: document.getElementById('count-trash'),
         statsBar: document.getElementById('stats-bar'),
         message: document.getElementById('message'),
+        middleBatchEdit: document.getElementById('middle-batch-edit'),
+        middleBatchDelete: document.getElementById('middle-batch-delete'),
+        rightSelectAll: document.getElementById('right-select-all'),
+        rightBatchRestore: document.getElementById('right-batch-restore'),
+        rightBatchDelete: document.getElementById('right-batch-delete'),
+        trashSelectAll: document.getElementById('trash-select-all'),
+        trashBatchRestore: document.getElementById('trash-batch-restore'),
+        trashBatchDelete: document.getElementById('trash-batch-delete'),
     };
 
     function escapeHtml(value) {
@@ -1221,6 +1397,24 @@ $isAdmin = tp_is_admin();
             els.message.className = 'message';
             els.message.textContent = '';
         }, 3500);
+    }
+
+    function getSectionView(section) {
+        return localStorage.getItem(`telepraxis_view_${section}`) === 'table' ? 'table' : 'cards';
+    }
+
+    function setSectionView(section, view) {
+        localStorage.setItem(`telepraxis_view_${section}`, view === 'table' ? 'table' : 'cards');
+        updateViewButtons();
+        render(lastEntries);
+    }
+
+    function updateViewButtons() {
+        document.querySelectorAll('[data-view-set]').forEach(button => {
+            const section = button.getAttribute('data-view-set');
+            const view = button.getAttribute('data-view');
+            button.classList.toggle('active-view', getSectionView(section) === view);
+        });
     }
 
     function loadSummaryState() {
@@ -1257,6 +1451,7 @@ $isAdmin = tp_is_admin();
             els.trashToggle.checked = localStorage.getItem('telepraxis_show_trash') === '1';
         }
         loadSummaryState();
+        updateViewButtons();
         applyVisibilitySettings();
     }
 
@@ -1301,31 +1496,24 @@ $isAdmin = tp_is_admin();
         if (!audioContext) return;
 
         const now = audioContext.currentTime;
-        const shortDuration = 0.11;
-        const longDuration = shortDuration * 3;
-        const gap = 0.06;
-        const starts = [
-            now,
-            now + shortDuration + gap,
-            now + (shortDuration + gap) * 2,
-            now + (shortDuration + gap) * 3,
-        ];
-        const durations = [shortDuration, shortDuration, shortDuration, longDuration];
+        const starts = [0, 0.20, 0.40, 0.60];
+        const durations = [0.11, 0.11, 0.11, 0.33];
 
-        starts.forEach((startTime, index) => {
-            const duration = durations[index];
+        starts.forEach((offset, index) => {
             const gain = audioContext.createGain();
-            gain.gain.setValueAtTime(0.0001, startTime);
-            gain.gain.exponentialRampToValueAtTime(0.22, startTime + 0.01);
-            gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+            const startAt = now + offset;
+            const duration = durations[index];
+            gain.gain.setValueAtTime(0.0001, startAt);
+            gain.gain.exponentialRampToValueAtTime(0.18, startAt + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
             gain.connect(audioContext.destination);
 
             const osc = audioContext.createOscillator();
             osc.type = 'triangle';
-            osc.frequency.setValueAtTime(1046, startTime);
+            osc.frequency.setValueAtTime(1046, startAt);
             osc.connect(gain);
-            osc.start(startTime);
-            osc.stop(startTime + duration);
+            osc.start(startAt);
+            osc.stop(startAt + duration);
         });
     }
 
@@ -1346,43 +1534,68 @@ $isAdmin = tp_is_admin();
         return String(b.last_updated_at || '').localeCompare(String(a.last_updated_at || ''));
     }
 
-    function createActionButtons(entry, placement) {
+    function syncSelections(section, entries) {
+        visibleFiles[section] = new Set(entries.map(entry => String(entry.file || '')));
+        for (const file of Array.from(selectedFiles[section])) {
+            if (!visibleFiles[section].has(file)) {
+                selectedFiles[section].delete(file);
+            }
+        }
+    }
+
+    function updateDocumentTitle(entries) {
+        const newCount = entries.filter(entry => !entry.deleted && entry.status === 'neu').length;
+        document.title = `Neu: ${newCount} – ${baseTitle}`;
+    }
+
+    function createActionButtons(entry, placement, compact = false) {
         const file = escapeHtml(entry.file);
+        const classes = compact ? 'actions-inline' : 'actions';
+
         if (placement === 'trash') {
             return `
-                <div class="actions">
+                <div class="${classes}">
                     <button class="btn btn-primary" data-action="restore" data-file="${file}">Wiederherstellen</button>
-                    <button class="btn btn-danger" data-action="purge" data-file="${file}">Endgültig löschen</button>
+                    <button class="btn btn-danger" data-action="purge" data-file="${file}" data-confirm="Diesen Eintrag endgültig löschen?">Löschen</button>
                 </div>`;
         }
+
         if (placement === 'middle') {
+            if (compact) {
+                return `
+                    <div class="${classes}">
+                        <button class="btn ${entry.urgent ? 'btn-danger' : ''}" data-action="toggle_urgent" data-file="${file}">Dringend</button>
+                    </div>`;
+            }
             return `
-                <div class="actions">
-                    <button class="btn btn-primary" data-action="set_status" data-status="in_bearbeitung" data-file="${file}">Bearbeitung</button>
+                <div class="${classes}">
+                    <button class="btn btn-primary" data-action="set_status" data-status="in_bearbeitung" data-file="${file}">Bearbeiten</button>
                     <button class="btn ${entry.urgent ? 'btn-danger' : ''}" data-action="toggle_urgent" data-file="${file}">Dringend</button>
+                    <button class="btn btn-danger" data-action="soft_delete" data-file="${file}">Löschen</button>
                 </div>`;
         }
+
         if (placement === 'left') {
             return `
-                <div class="actions">
+                <div class="${classes}">
                     <button class="btn" data-action="set_status" data-status="neu" data-file="${file}">Zurücksetzen</button>
                     <button class="btn btn-primary" data-action="set_status" data-status="abgeschlossen" data-file="${file}">Fertig</button>
                     <button class="btn btn-danger" data-action="soft_delete" data-file="${file}">Löschen</button>
                     <button class="btn ${entry.urgent ? 'btn-danger' : ''}" data-action="toggle_urgent" data-file="${file}">Dringend</button>
                 </div>`;
         }
+
         return `
-            <div class="actions">
+            <div class="${classes}">
+                <button class="btn" data-action="set_status" data-status="neu" data-file="${file}">Wiederherstellen</button>
                 <button class="btn btn-danger" data-action="soft_delete" data-file="${file}">Löschen</button>
-                <button class="btn" data-action="set_status" data-status="neu" data-file="${file}">Zurücksetzen</button>
             </div>`;
     }
 
-    function createHeader(entry, placement) {
-        const nameLineClass = 'header-line name-line name-line-left';
+    function createHeader(entry) {
         const nameLine = entry.person_display
             ? `
-                <div class="${nameLineClass}">
+                <div class="header-line name-line">
                     <button type="button" class="name-button" data-copy-name="${escapeHtml(entry.person_copy || '')}" title="${escapeHtml(entry.person_display)}">
                         <span class="name-main">${escapeHtml(entry.person_name || '')}</span>
                     </button>
@@ -1432,7 +1645,15 @@ $isAdmin = tp_is_admin();
             <div class="transmitted-row"><strong>Übermittelte Telefonnummer:</strong> ${transmittedNode}</div>`;
     }
 
-    function createCard(entry, placement) {
+    function createSelectionControl(section, entry, checkboxOnly = false) {
+        return `
+            <label class="selection-label${checkboxOnly ? ' only-checkbox' : ''}">
+                <input type="checkbox" data-select-section="${escapeHtml(section)}" data-file="${escapeHtml(entry.file)}"${selectedFiles[section].has(entry.file) ? ' checked' : ''}>
+                ${checkboxOnly ? '' : 'Auswählen'}
+            </label>`;
+    }
+
+    function createCard(entry, placement, section = '') {
         const classes = ['card', `status-${entry.status}`];
         if (entry.urgent) classes.push('urgent');
         const bodyClass = placement === 'left' ? 'body-full' : 'body-preview';
@@ -1443,7 +1664,8 @@ $isAdmin = tp_is_admin();
 
         return `
             <article class="${classes.join(' ')}">
-                ${createHeader(entry, placement)}
+                ${section ? `<div class="selection-row">${createSelectionControl(section, entry)}</div>` : ''}
+                ${createHeader(entry)}
                 <div class="card-body ${bodyClass}" title="${bodyTitle}">${escapeHtml(entry.body || '—')}</div>
                 ${placement === 'left' ? createLeftExtras(entry) : ''}
                 ${deletedExtra}
@@ -1453,6 +1675,62 @@ $isAdmin = tp_is_admin();
 
     function createEmpty(text) {
         return `<div class="empty">${escapeHtml(text)}</div>`;
+    }
+
+    function createNameCell(entry, dateText = '') {
+        if (!entry.person_display) {
+            return `
+                <div class="table-name-wrap">
+                    <div>—</div>
+                    ${dateText ? `<div class="table-name-meta">${escapeHtml(dateText)}</div>` : ''}
+                </div>`;
+        }
+        return `
+            <div class="table-name-wrap">
+                <div class="table-name-mainline">
+                    <button type="button" class="name-button" data-copy-name="${escapeHtml(entry.person_copy || '')}" title="${escapeHtml(entry.person_display)}">
+                        <span class="name-main">${escapeHtml(entry.person_name || '')}</span>
+                    </button>
+                    ${entry.person_birth_date ? `<span class="name-birth" data-copy-birth="${escapeHtml(entry.person_birth_date)}" title="${escapeHtml(entry.person_birth_date)}">${escapeHtml(entry.person_birth_date)}</span>` : ''}
+                </div>
+                ${dateText ? `<div class="table-name-meta">${escapeHtml(dateText)}</div>` : ''}
+            </div>`;
+    }
+
+    function createTable(section, entries) {
+        const headings = `
+                <tr>
+                    <th class="table-checkbox-cell"></th>
+                    <th class="table-category-cell">Kategorie</th>
+                    <th class="table-name-cell">Name</th>
+                    <th>Inhalt</th>
+                    <th class="table-actions-cell">Aktionen</th>
+                </tr>`;
+
+        const placement = section === 'middle' ? 'middle' : (section === 'trash' ? 'trash' : 'right');
+        const rows = entries.map(entry => {
+            const dateText = entry.received_at_display || '—';
+            return `
+            <tr class="status-${escapeHtml(entry.status)}${entry.urgent ? ' urgent' : ''}">
+                <td class="table-checkbox-cell">${createSelectionControl(section, entry, true)}</td>
+                <td class="table-category-cell">
+                    <span class="category-tag">${escapeHtml(entry.category_label)}</span>
+                    ${entry.urgent ? '<div class="urgent-mark">!</div>' : ''}
+                </td>
+                <td class="table-name-cell">${createNameCell(entry, dateText)}</td>
+                <td class="table-body-cell"><div class="table-body-text" title="${escapeHtml(entry.body || '')}">${escapeHtml(entry.body || '—')}</div></td>
+                <td class="table-actions-cell">${createActionButtons(entry, placement, true)}</td>
+            </tr>
+        `;
+        }).join('');
+
+        return `
+            <div class="table-wrap">
+                <table class="entry-table">
+                    <thead>${headings}</thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>`;
     }
 
     function renderStats(entries) {
@@ -1474,24 +1752,47 @@ $isAdmin = tp_is_admin();
         els.statsBar.innerHTML = pills.map(text => `<div class="stat">${escapeHtml(text)}</div>`).join('');
     }
 
-    function render(entries) {
-        const workplace = currentWorkplace();
-        const left = entries.filter(entry => !entry.deleted && entry.status === 'in_bearbeitung' && workplace !== '' && entry.last_workplace === workplace).sort(sortLeft);
-        const middle = entries.filter(entry => !entry.deleted && (entry.status === 'neu' || (entry.status === 'in_bearbeitung' && (workplace === '' || entry.last_workplace !== workplace)))).sort(sortMiddle);
-        const right = entries.filter(entry => !entry.deleted && entry.status === 'abgeschlossen').sort(sortRight);
-        const trash = entries.filter(entry => entry.deleted).sort(sortRight);
+    function renderSelectableSection(section, entries, emptyText) {
+        syncSelections(section, entries);
+        if (!entries.length) {
+            return createEmpty(emptyText);
+        }
 
-        els.leftColumn.innerHTML = left.length ? left.map(entry => createCard(entry, 'left')).join('') : createEmpty('Keine Vorgänge in Bearbeitung.');
-        els.middleColumn.innerHTML = middle.length ? middle.map(entry => createCard(entry, 'middle')).join('') : createEmpty('Keine neuen Eingänge.');
-        els.rightColumn.innerHTML = right.length ? right.map(entry => createCard(entry, 'right')).join('') : createEmpty('Keine abgeschlossenen Vorgänge.');
-        els.trashBody.innerHTML = trash.length ? trash.map(entry => createCard(entry, 'trash')).join('') : createEmpty('Papierkorb ist leer.');
+        if (getSectionView(section) === 'table') {
+            return createTable(section, entries);
+        }
+
+        if (section === 'middle') {
+            return `<div class="middle-grid">${entries.map(entry => createCard(entry, 'middle', 'middle')).join('')}</div>`;
+        }
+        if (section === 'right') {
+            return `<div class="stack-list">${entries.map(entry => createCard(entry, 'right', 'right')).join('')}</div>`;
+        }
+        return `<div class="stack-list">${entries.map(entry => createCard(entry, 'trash', 'trash')).join('')}</div>`;
+    }
+
+    function render(entries) {
+        lastEntries = Array.isArray(entries) ? entries : [];
+        updateDocumentTitle(lastEntries);
+
+        const workplace = currentWorkplace();
+        const left = lastEntries.filter(entry => !entry.deleted && entry.status === 'in_bearbeitung' && workplace !== '' && entry.last_workplace === workplace).sort(sortLeft);
+        const middle = lastEntries.filter(entry => !entry.deleted && (entry.status === 'neu' || (entry.status === 'in_bearbeitung' && (workplace === '' || entry.last_workplace !== workplace)))).sort(sortMiddle);
+        const right = lastEntries.filter(entry => !entry.deleted && entry.status === 'abgeschlossen').sort(sortRight);
+        const trash = lastEntries.filter(entry => entry.deleted).sort(sortRight);
+
+        els.leftColumn.innerHTML = left.length ? `<div class="stack-list">${left.map(entry => createCard(entry, 'left')).join('')}</div>` : createEmpty('Keine Vorgänge in Bearbeitung.');
+        els.middleBody.innerHTML = renderSelectableSection('middle', middle, 'Keine neuen Eingänge.');
+        els.rightBody.innerHTML = renderSelectableSection('right', right, 'Keine abgeschlossenen Vorgänge.');
+        els.trashBody.innerHTML = renderSelectableSection('trash', trash, 'Papierkorb ist leer.');
 
         els.countLeft.textContent = String(left.length);
         els.countMiddle.textContent = String(middle.length);
         els.countRight.textContent = String(right.length);
         els.countTrash.textContent = String(trash.length);
 
-        renderStats(entries);
+        renderStats(lastEntries);
+        updateViewButtons();
     }
 
     async function apiRequest(formData) {
@@ -1535,25 +1836,80 @@ $isAdmin = tp_is_admin();
         }
     }
 
+    async function submitSingleAction(action, file, status = '') {
+        const formData = new FormData();
+        formData.set('csrf', currentCsrf);
+        formData.set('action', action);
+        formData.set('file', file);
+        formData.set('workplace', currentWorkplace());
+        if (status) {
+            formData.set('status', status);
+        }
+        return apiRequest(formData);
+    }
+
     async function handleAction(target) {
         const action = target.getAttribute('data-action');
         if (!action) return;
 
-        const formData = new FormData();
-        formData.set('csrf', currentCsrf);
-        formData.set('action', action);
-        formData.set('file', target.getAttribute('data-file') || '');
-        formData.set('workplace', currentWorkplace());
-        if (target.hasAttribute('data-status')) {
-            formData.set('status', target.getAttribute('data-status') || '');
+        const confirmText = target.getAttribute('data-confirm');
+        if (confirmText && !window.confirm(confirmText)) {
+            return;
         }
 
         try {
-            await apiRequest(formData);
+            await submitSingleAction(action, target.getAttribute('data-file') || '', target.getAttribute('data-status') || '');
             await refresh();
         } catch (error) {
             showMessage(error.message || 'Aktion fehlgeschlagen.', true);
         }
+    }
+
+    async function runBatch(section, mode) {
+        const files = Array.from(selectedFiles[section]);
+        if (!files.length) {
+            showMessage('Bitte zuerst mindestens einen Eintrag auswählen.', true);
+            return;
+        }
+
+        if (section === 'middle' && mode === 'delete') {
+            if (!window.confirm(`Die ${files.length} markierten Einträge in „Neu“ wirklich löschen?`)) {
+                return;
+            }
+        }
+
+        if (section === 'trash' && mode === 'purge') {
+            if (!window.confirm(`Die ${files.length} markierten Einträge endgültig löschen?`)) {
+                return;
+            }
+        }
+
+        try {
+            for (const file of files) {
+                if (section === 'middle' && mode === 'edit') {
+                    await submitSingleAction('set_status', file, 'in_bearbeitung');
+                } else if (section === 'middle' && mode === 'delete') {
+                    await submitSingleAction('soft_delete', file);
+                } else if (section === 'right' && mode === 'restore') {
+                    await submitSingleAction('set_status', file, 'neu');
+                } else if (section === 'right' && mode === 'delete') {
+                    await submitSingleAction('soft_delete', file);
+                } else if (section === 'trash' && mode === 'restore') {
+                    await submitSingleAction('restore', file);
+                } else if (section === 'trash' && mode === 'purge') {
+                    await submitSingleAction('purge', file);
+                }
+                selectedFiles[section].delete(file);
+            }
+            await refresh();
+        } catch (error) {
+            showMessage(error.message || 'Sammelaktion fehlgeschlagen.', true);
+        }
+    }
+
+    function selectAllVisible(section) {
+        visibleFiles[section].forEach(file => selectedFiles[section].add(file));
+        render(lastEntries);
     }
 
     async function adminLogin() {
@@ -1610,22 +1966,57 @@ $isAdmin = tp_is_admin();
     }
 
     document.addEventListener('click', event => {
+        const viewButton = event.target.closest('[data-view-set]');
+        if (viewButton) {
+            event.preventDefault();
+            setSectionView(viewButton.getAttribute('data-view-set') || '', viewButton.getAttribute('data-view') || 'cards');
+            return;
+        }
+
         const actionButton = event.target.closest('[data-action]');
         if (actionButton) {
             event.preventDefault();
             handleAction(actionButton);
             return;
         }
+
+        const batchButton = event.target.closest('[data-batch]');
+        if (batchButton) {
+            event.preventDefault();
+            const section = batchButton.getAttribute('data-section') || '';
+            const mode = batchButton.getAttribute('data-batch') || '';
+            if (mode === 'select_all') {
+                selectAllVisible(section);
+            } else {
+                runBatch(section, mode);
+            }
+            return;
+        }
+
         const birthNode = event.target.closest('[data-copy-birth]');
         if (birthNode) {
             event.preventDefault();
             copyText(birthNode.getAttribute('data-copy-birth') || '');
             return;
         }
+
         const copyButton = event.target.closest('[data-copy-name]');
         if (copyButton) {
             event.preventDefault();
             copyText(copyButton.getAttribute('data-copy-name') || '');
+        }
+    });
+
+    document.addEventListener('change', event => {
+        const checkbox = event.target.closest('[data-select-section]');
+        if (!checkbox) return;
+        const section = checkbox.getAttribute('data-select-section') || '';
+        const file = checkbox.getAttribute('data-file') || '';
+        if (!section || !file || !selectedFiles[section]) return;
+        if (checkbox.checked) {
+            selectedFiles[section].add(file);
+        } else {
+            selectedFiles[section].delete(file);
         }
     });
 
@@ -1656,6 +2047,23 @@ $isAdmin = tp_is_admin();
             saveWorkplace();
         }
     });
+
+    els.middleBatchEdit?.setAttribute('data-batch', 'edit');
+    els.middleBatchEdit?.setAttribute('data-section', 'middle');
+    els.middleBatchDelete?.setAttribute('data-batch', 'delete');
+    els.middleBatchDelete?.setAttribute('data-section', 'middle');
+    els.rightSelectAll?.setAttribute('data-batch', 'select_all');
+    els.rightSelectAll?.setAttribute('data-section', 'right');
+    els.rightBatchRestore?.setAttribute('data-batch', 'restore');
+    els.rightBatchRestore?.setAttribute('data-section', 'right');
+    els.rightBatchDelete?.setAttribute('data-batch', 'delete');
+    els.rightBatchDelete?.setAttribute('data-section', 'right');
+    els.trashSelectAll?.setAttribute('data-batch', 'select_all');
+    els.trashSelectAll?.setAttribute('data-section', 'trash');
+    els.trashBatchRestore?.setAttribute('data-batch', 'restore');
+    els.trashBatchRestore?.setAttribute('data-section', 'trash');
+    els.trashBatchDelete?.setAttribute('data-batch', 'purge');
+    els.trashBatchDelete?.setAttribute('data-section', 'trash');
 
     document.addEventListener('pointerdown', ensureAudioContext, { once: true });
     loadLocalSettings();
