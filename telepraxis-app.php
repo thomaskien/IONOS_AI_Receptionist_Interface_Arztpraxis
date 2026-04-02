@@ -1,26 +1,21 @@
 <?php
 /*
  * telepraxis-app.php
- * Version: 2.4
+ * Version: 2.6
  *
  * Fortgeführter Changelog (niemals entfernen, nur ergänzen):
- * - v2.4 (2026-04-02)
- *   - Kartenauswahl sprachlich wieder auf „Auswählen“ bzw. „Alle auswählen“ umgestellt.
- *   - Tabellenansicht verschlankt: Checkboxen ohne Begleittext, keine Telefonspalte mehr, Eingangszeitstempel nun unter dem Namen und Vorschautext stets sichtbar.
- *   - Tabellenzeilen-Aktionen je Bereich angepasst: Neu nur noch „Dringend“, Abgeschlossen „Wiederherstellen“ und „Löschen“, Papierkorb „Wiederherstellen“ und „Löschen“.
- * - v2.3 (2026-04-02)
- *   - Mittlere Spalte, Abgeschlossen und Papierkorb können nun jeweils zwischen Karten- und Tabellenansicht umgeschaltet werden.
- *   - Tabellenzeilen sind umrandet, nutzen die gleiche Status-Farbgebung wie die Karten und erhalten die jeweils besprochenen Zeilen- und Sammelaktionen.
- *   - Abgeschlossen unterstützt nun Checkboxen sowie die Sammelaktionen „Alle markieren“, „Wiederherstellen“ und „Löschen“.
- *   - Papierkorb unterstützt nun Checkboxen, „Alle auswählen“, „Wiederherstellen“ und „Endgültig löschen“ mit Rückfrage.
- *   - Darstellungsbug im Papierkorb behoben: Der Bereich ist nun sauber scrollbar, auch wenn viele Einträge vorhanden sind.
- * - v2.2 (2026-04-02)
- *   - Mittlere Spalte erhielt Checkboxen sowie die Kopfzeilen-Aktionen „Bearbeiten“ und „Löschen“ für markierte Einträge.
- *   - Papierkorb erhielt Checkboxen sowie die Kopfzeilen-Aktionen „Alle auswählen“, „Wiederherstellen“ und „Endgültig löschen“.
- *   - Browsertitel zeigt nun die aktuelle Anzahl neuer Vorgänge an und aktualisiert sich beim Polling.
- * - v2.1 (2026-03-31)
- *   - Benachrichtigungston prägnanter umgesetzt: gleicher Ton nun viermal direkt hintereinander, der vierte Ton dreimal so lang.
- *   - Namenszeile im Header nun in allen Spalten linksbündig dargestellt.
+ * - v2.6 (2026-04-02)
+ *   - JS-Fehler in der Zwischenablagefunktion behoben; Karten werden wieder zuverlässig geladen.
+ *   - Kommentarfeld in Bearbeitung behält bei Polling/Refresh Fokus, Text und Cursorposition.
+ *   - Button-Reihenfolge in Bearbeitung angepasst: „Fertig“ steht nun ganz links.
+ *   - Druck- und Zwischenablageaktion in Bearbeitung als platzsparende Symbol-Buttons umgesetzt.
+ *   - Druckfunktion überarbeitet; Druckfenster erhält wieder Inhalt und öffnet den Druckdialog zuverlässig.
+ *   - Beim Feld „Platz“ gibt es nun „Bookmark-Link“; nach dem Kopieren erscheint zusätzlich „Öffnen“ für den erzeugten Platz-Link.
+ * - v2.5 (2026-04-02)
+ *   - Bereich „In Bearbeitung“ erhielt eine Kommentarfunktion mit 3-zeiligem Eingabefeld, Speicherung beliebig vieler Kommentare im JSON mit Zeitstempel und Platz sowie Anzeige aller Kommentare unterhalb der übermittelten Telefonnummer.
+ *   - Sichtbare UI-Bezeichnung „Arbeitsplatz“ wurde durchgängig zu „Platz“ umgestellt; interne Feld- und Variablennamen bleiben unverändert.
+ *   - Karten in Bearbeitung erhielten die Zusatzaktionen „Kommentar“, „Drucken“ und „Karte in die Zwischenablage“.
+ *   - Druck- und Zwischenablageausgabe umfassen nun die komplette Karte inklusive deutlichem Dringend-Hinweis, Gesprächszusammenfassung, übermittelter Telefonnummer und vorhandener Kommentare.
  * - v2.0 (2026-03-31)
  *   - Darstellungsbug in der linken Spalte behoben: Karten in Bearbeitung wachsen nun zuverlässig vollständig mit dem Inhalt, auch bei längeren Detailblöcken und Button-Reihen.
  * - v1.9 (2026-03-31)
@@ -60,7 +55,7 @@ session_start();
 date_default_timezone_set('Europe/Berlin');
 
 const TELEPRAXIS_APP_NAME = 'telepraxis-app';
-const TELEPRAXIS_APP_VERSION = '2.4';
+const TELEPRAXIS_APP_VERSION = '2.6';
 const TELEPRAXIS_INBOX_DIR = __DIR__ . DIRECTORY_SEPARATOR . 'inbox';
 const TELEPRAXIS_POLL_INTERVAL_MS = 5000;
 const TELEPRAXIS_DEFAULT_TIMEZONE = 'Europe/Berlin';
@@ -218,6 +213,7 @@ function tp_entry_default_app(array $entry): array
         'deleted_at' => null,
         'deleted_arbeitsplatz' => null,
         'in_bearbeitung_at' => null,
+        'comments' => [],
     ];
 }
 
@@ -234,7 +230,33 @@ function tp_ensure_entry_app(array $entry): array
     }
     $entry['app']['dringend'] = (bool)$entry['app']['dringend'];
     $entry['app']['deleted'] = (bool)$entry['app']['deleted'];
+    $entry['app']['comments'] = tp_normalize_comments($entry['app']['comments'] ?? []);
     return $entry;
+}
+
+function tp_normalize_comments($comments): array
+{
+    if (!is_array($comments)) {
+        return [];
+    }
+
+    $normalized = [];
+    foreach ($comments as $comment) {
+        if (!is_array($comment)) {
+            continue;
+        }
+        $text = trim((string)($comment['text'] ?? ''));
+        if ($text === '') {
+            continue;
+        }
+        $normalized[] = [
+            'text' => $text,
+            'created_at' => (string)($comment['created_at'] ?? tp_now_iso()),
+            'workplace' => tp_sanitize_workplace((string)($comment['workplace'] ?? '')),
+        ];
+    }
+
+    return $normalized;
 }
 
 function tp_payload(array $entry): array
@@ -416,6 +438,18 @@ function tp_build_entry_view(array $entry, string $fileName): array
     }
 
     $body = tp_build_main_text($entry);
+    $comments = [];
+    foreach (($entry['app']['comments'] ?? []) as $comment) {
+        if (!is_array($comment)) {
+            continue;
+        }
+        $comments[] = [
+            'text' => trim((string)($comment['text'] ?? '')),
+            'created_at' => (string)($comment['created_at'] ?? ''),
+            'created_at_display' => tp_format_datetime((string)($comment['created_at'] ?? '')),
+            'workplace' => tp_sanitize_workplace((string)($comment['workplace'] ?? '')),
+        ];
+    }
 
     return [
         'id' => (string)($entry['id'] ?? pathinfo($fileName, PATHINFO_FILENAME)),
@@ -446,6 +480,7 @@ function tp_build_entry_view(array $entry, string $fileName): array
         'last_workplace' => (string)($entry['app']['status_updated_arbeitsplatz'] ?? ''),
         'deleted_at_display' => tp_format_datetime((string)($entry['app']['deleted_at'] ?? '')),
         'deleted_workplace' => (string)($entry['app']['deleted_arbeitsplatz'] ?? ''),
+        'comments' => $comments,
     ];
 }
 
@@ -647,6 +682,29 @@ function tp_handle_api(): void
             tp_action_response($updated, $file);
         }
 
+        if ($action === 'add_comment') {
+            $commentText = trim((string)($_POST['comment_text'] ?? ''));
+            if ($commentText === '') {
+                tp_json_response(['ok' => false, 'error' => 'Kommentar fehlt.'], 400);
+            }
+            $updated = tp_update_file($file, function (array $entry) use ($workplace, $commentText): array {
+                $entry = tp_ensure_entry_app($entry);
+                if (!isset($entry['app']['comments']) || !is_array($entry['app']['comments'])) {
+                    $entry['app']['comments'] = [];
+                }
+                $entry['app']['comments'][] = [
+                    'text' => $commentText,
+                    'created_at' => tp_now_iso(),
+                    'workplace' => $workplace,
+                ];
+                $entry['app']['status_updated_at'] = tp_now_iso();
+                $entry['app']['status_updated_arbeitsplatz'] = $workplace;
+                $entry['app']['last_action'] = 'add_comment';
+                return $entry;
+            });
+            tp_action_response($updated, $file);
+        }
+
         if ($action === 'restore') {
             if (!tp_is_admin()) {
                 tp_json_response(['ok' => false, 'error' => 'Admin erforderlich.'], 403);
@@ -797,11 +855,6 @@ $isAdmin = tp_is_admin();
         .btn-primary { background: #edf4ff; border-color: #c4d8f5; }
         .btn-danger { background: #fff3f3; border-color: #f0c9c9; }
         .btn-admin { background: #f4efff; border-color: #d7c9f0; }
-        .btn.active-view {
-            background: #eaf1ff;
-            border-color: #b9c9eb;
-            font-weight: 700;
-        }
         .stats {
             display: flex;
             flex-wrap: wrap;
@@ -845,8 +898,7 @@ $isAdmin = tp_is_admin();
         .columns.hide-completed {
             grid-template-columns: minmax(310px, 1.1fr) minmax(450px, 2fr);
         }
-        .column,
-        .trash-panel {
+        .column {
             background: rgba(255,255,255,0.55);
             border: 1px solid var(--panel-border);
             border-radius: 18px;
@@ -856,55 +908,28 @@ $isAdmin = tp_is_admin();
             overflow: hidden;
         }
         .column.hidden { display: none; }
-        .trash-panel {
-            display: none;
-            flex: 1;
-            min-height: 0;
-        }
-        .trash-panel.show { display: flex; }
         .column-header {
             padding: 14px 16px;
             border-bottom: 1px solid var(--panel-border);
             background: rgba(255,255,255,0.75);
             display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .column-header-top,
-        .column-header-actions {
-            display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 10px;
-            flex-wrap: wrap;
+            gap: 12px;
         }
         .column-title { margin: 0; font-size: 1rem; }
         .column-count { color: var(--muted); font-size: 0.92rem; }
-        .header-button-group,
-        .view-toggle {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-        }
-        .column-body,
-        .trash-body {
+        .column-body {
             padding: 14px;
             overflow: auto;
             display: flex;
             flex-direction: column;
             gap: 12px;
             min-height: 0;
-            flex: 1;
         }
         .middle-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 12px;
-        }
-        .stack-list {
-            display: flex;
-            flex-direction: column;
             gap: 12px;
         }
         .card {
@@ -938,23 +963,6 @@ $isAdmin = tp_is_admin();
             margin-top: 0;
         }
         .right-column .card { min-height: 200px; }
-        .selection-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            min-height: 20px;
-        }
-        .selection-label {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.9rem;
-            color: var(--muted);
-        }
-        .selection-label.only-checkbox {
-            gap: 0;
-        }
         .card-header-box {
             width: 100%;
             border: 1px solid var(--panel-border);
@@ -981,6 +989,9 @@ $isAdmin = tp_is_admin();
             flex: 1;
         }
         .name-line {
+            justify-content: center;
+        }
+        .name-line.name-line-left {
             justify-content: flex-start;
         }
         .name-button {
@@ -997,7 +1008,7 @@ $isAdmin = tp_is_admin();
             align-items: baseline;
             gap: 6px;
             min-width: 0;
-            text-align: left;
+            text-align: inherit;
         }
         .name-main {
             font-weight: 700;
@@ -1078,6 +1089,10 @@ $isAdmin = tp_is_admin();
             background: rgba(255,255,255,0.58);
             padding: 10px 12px;
         }
+        .detail-block h4 {
+            margin: 0 0 8px 0;
+            font-size: 0.92rem;
+        }
         .detail-block p {
             margin: 8px 0 0 0;
             white-space: pre-wrap;
@@ -1097,6 +1112,61 @@ $isAdmin = tp_is_admin();
         .detail-block summary::-webkit-details-marker {
             display: none;
         }
+        .comments-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .comment-item {
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            background: rgba(255,255,255,0.7);
+            padding: 8px 10px;
+        }
+        .comment-meta {
+            font-size: 0.84rem;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+        .comment-text {
+            white-space: pre-wrap;
+            line-height: 1.35;
+            color: var(--text);
+        }
+        .comment-editor {
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            background: rgba(255,255,255,0.58);
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .comment-editor textarea {
+            width: 100%;
+            min-height: 4.8em;
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font: inherit;
+            color: var(--text);
+            background: #fff;
+            resize: vertical;
+        }
+        .comment-editor-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .btn-icon {
+            min-width: 2.5rem;
+            padding-left: 0.65rem;
+            padding-right: 0.65rem;
+            text-align: center;
+            font-size: 1rem;
+            line-height: 1;
+        }
         .transmitted-row {
             margin-top: auto;
             padding-top: 2px;
@@ -1105,86 +1175,25 @@ $isAdmin = tp_is_admin();
             text-align: left;
         }
         .transmitted-row strong { color: var(--text); }
-        .actions,
-        .actions-inline {
+        .actions {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
-        }
-        .actions {
             margin-top: auto;
         }
-        .table-wrap {
-            overflow: auto;
-            min-height: 0;
+        .trash-panel {
+            display: none;
+            background: rgba(255,255,255,0.55);
+            border: 1px solid var(--panel-border);
+            border-radius: 18px;
+            overflow: hidden;
         }
-        .entry-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0 10px;
-            table-layout: fixed;
-        }
-        .entry-table th {
-            text-align: left;
-            font-size: 0.83rem;
-            color: var(--muted);
-            padding: 0 10px 4px 10px;
-            font-weight: 700;
-        }
-        .entry-table td {
-            padding: 10px;
-            vertical-align: top;
-            border-top: 1px solid var(--panel-border);
-            border-bottom: 1px solid var(--panel-border);
-            background: var(--panel);
-        }
-        .entry-table td:first-child {
-            border-left: 1px solid var(--panel-border);
-            border-radius: 12px 0 0 12px;
-        }
-        .entry-table td:last-child {
-            border-right: 1px solid var(--panel-border);
-            border-radius: 0 12px 12px 0;
-        }
-        .entry-table tr.status-neu td { background: var(--green-bg); }
-        .entry-table tr.status-in_bearbeitung td { background: var(--yellow-bg); }
-        .entry-table tr.status-abgeschlossen td { background: var(--gray-bg); }
-        .entry-table tr.urgent td {
-            border-top-color: var(--red);
-            border-bottom-color: var(--red);
-        }
-        .entry-table tr.urgent td:first-child { border-left-color: var(--red); }
-        .entry-table tr.urgent td:last-child { border-right-color: var(--red); }
-        .table-checkbox-cell { width: 52px; }
-        .table-category-cell { width: 120px; }
-        .table-name-cell { width: 220px; }
-        .table-actions-cell { width: 220px; }
-        .table-body-cell,
-        .table-name-wrap {
-            min-width: 0;
-        }
-        .table-name-wrap {
+        .trash-panel.show { display: flex; flex-direction: column; }
+        .trash-body {
+            padding: 14px;
             display: flex;
             flex-direction: column;
-            align-items: flex-start;
-            gap: 4px;
-            min-width: 0;
-        }
-        .table-name-mainline {
-            display: flex;
-            align-items: baseline;
-            gap: 6px;
-            flex-wrap: wrap;
-            min-width: 0;
-        }
-        .table-name-meta {
-            font-size: 0.84rem;
-            color: var(--muted);
-            white-space: nowrap;
-        }
-        .table-body-text {
-            white-space: pre-wrap;
-            line-height: 1.35;
+            gap: 12px;
         }
         .empty {
             border: 1px dashed var(--panel-border);
@@ -1214,9 +1223,11 @@ $isAdmin = tp_is_admin();
         </div>
 
         <div class="control-group">
-            <label for="workplace-input">Arbeitsplatz</label>
+            <label for="workplace-input">Platz</label>
             <input type="text" id="workplace-input" value="<?= tp_h($initialWorkplace) ?>" placeholder="z. B. anmeldunglinks">
             <button class="btn btn-primary" id="save-workplace-btn" type="button">Speichern</button>
+            <button class="btn" id="bookmark-link-btn" type="button">Bookmark-Link</button>
+            <button class="btn" id="bookmark-open-btn" type="button" hidden>Öffnen</button>
         </div>
 
         <div class="control-group">
@@ -1249,73 +1260,35 @@ $isAdmin = tp_is_admin();
     <div class="columns" id="columns">
         <section class="column left-column">
             <div class="column-header">
-                <div class="column-header-top">
-                    <h2 class="column-title">In Bearbeitung</h2>
-                    <div class="column-count" id="count-left">0</div>
-                </div>
+                <h2 class="column-title">In Bearbeitung</h2>
+                <div class="column-count" id="count-left">0</div>
             </div>
             <div class="column-body" id="left-column"></div>
         </section>
 
         <section class="column middle-column">
             <div class="column-header">
-                <div class="column-header-top">
-                    <h2 class="column-title">Neu</h2>
-                    <div class="column-count" id="count-middle">0</div>
-                </div>
-                <div class="column-header-actions">
-                    <div class="header-button-group">
-                        <button class="btn btn-primary" id="middle-batch-edit" type="button">Bearbeiten</button>
-                        <button class="btn btn-danger" id="middle-batch-delete" type="button">Löschen</button>
-                    </div>
-                    <div class="view-toggle">
-                        <button class="btn" type="button" data-view-set="middle" data-view="cards">Karten</button>
-                        <button class="btn" type="button" data-view-set="middle" data-view="table">Tabelle</button>
-                    </div>
-                </div>
+                <h2 class="column-title">Neu</h2>
+                <div class="column-count" id="count-middle">0</div>
             </div>
-            <div class="column-body" id="middle-body"></div>
+            <div class="column-body">
+                <div class="middle-grid" id="middle-column"></div>
+            </div>
         </section>
 
         <section class="column right-column" id="completed-column">
             <div class="column-header">
-                <div class="column-header-top">
-                    <h2 class="column-title">Abgeschlossen</h2>
-                    <div class="column-count" id="count-right">0</div>
-                </div>
-                <div class="column-header-actions">
-                    <div class="header-button-group">
-                        <button class="btn" id="right-select-all" type="button">Alle auswählen</button>
-                        <button class="btn btn-primary" id="right-batch-restore" type="button">Wiederherstellen</button>
-                        <button class="btn btn-danger" id="right-batch-delete" type="button">Löschen</button>
-                    </div>
-                    <div class="view-toggle">
-                        <button class="btn" type="button" data-view-set="right" data-view="cards">Karten</button>
-                        <button class="btn" type="button" data-view-set="right" data-view="table">Tabelle</button>
-                    </div>
-                </div>
+                <h2 class="column-title">Abgeschlossen</h2>
+                <div class="column-count" id="count-right">0</div>
             </div>
-            <div class="column-body" id="right-body"></div>
+            <div class="column-body" id="right-column"></div>
         </section>
     </div>
 
     <section class="trash-panel" id="trash-panel">
         <div class="column-header">
-            <div class="column-header-top">
-                <h2 class="column-title">Papierkorb</h2>
-                <div class="column-count" id="count-trash">0</div>
-            </div>
-            <div class="column-header-actions">
-                <div class="header-button-group">
-                    <button class="btn" id="trash-select-all" type="button">Alle auswählen</button>
-                    <button class="btn btn-primary" id="trash-batch-restore" type="button">Wiederherstellen</button>
-                    <button class="btn btn-danger" id="trash-batch-delete" type="button">Endgültig löschen</button>
-                </div>
-                <div class="view-toggle">
-                    <button class="btn" type="button" data-view-set="trash" data-view="cards">Karten</button>
-                    <button class="btn" type="button" data-view-set="trash" data-view="table">Tabelle</button>
-                </div>
-            </div>
+            <h2 class="column-title">Papierkorb</h2>
+            <div class="column-count" id="count-trash">0</div>
         </div>
         <div class="trash-body" id="trash-body"></div>
     </section>
@@ -1324,7 +1297,6 @@ $isAdmin = tp_is_admin();
 <script>
 (() => {
     const csrfToken = <?= json_encode($csrfToken, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-    const baseTitle = <?= json_encode(TELEPRAXIS_APP_NAME . ' v' . TELEPRAXIS_APP_VERSION, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     let currentCsrf = csrfToken;
     let isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
     let audioContext = null;
@@ -1332,21 +1304,16 @@ $isAdmin = tp_is_admin();
     let initialized = false;
     let pollTimer = null;
     let lastEntries = [];
+    let lastBookmarkUrl = '';
     const openSummaryFiles = new Set();
-    const selectedFiles = {
-        middle: new Set(),
-        right: new Set(),
-        trash: new Set(),
-    };
-    const visibleFiles = {
-        middle: new Set(),
-        right: new Set(),
-        trash: new Set(),
-    };
+    const openCommentFiles = new Set();
+    const commentDrafts = new Map();
 
     const els = {
         workplaceInput: document.getElementById('workplace-input'),
         saveWorkplaceBtn: document.getElementById('save-workplace-btn'),
+        bookmarkLinkBtn: document.getElementById('bookmark-link-btn'),
+        bookmarkOpenBtn: document.getElementById('bookmark-open-btn'),
         soundToggle: document.getElementById('sound-toggle'),
         completedToggle: document.getElementById('completed-toggle'),
         trashToggle: document.getElementById('trash-toggle'),
@@ -1356,8 +1323,8 @@ $isAdmin = tp_is_admin();
         columns: document.getElementById('columns'),
         completedColumn: document.getElementById('completed-column'),
         leftColumn: document.getElementById('left-column'),
-        middleBody: document.getElementById('middle-body'),
-        rightBody: document.getElementById('right-body'),
+        middleColumn: document.getElementById('middle-column'),
+        rightColumn: document.getElementById('right-column'),
         trashPanel: document.getElementById('trash-panel'),
         trashBody: document.getElementById('trash-body'),
         countLeft: document.getElementById('count-left'),
@@ -1366,14 +1333,6 @@ $isAdmin = tp_is_admin();
         countTrash: document.getElementById('count-trash'),
         statsBar: document.getElementById('stats-bar'),
         message: document.getElementById('message'),
-        middleBatchEdit: document.getElementById('middle-batch-edit'),
-        middleBatchDelete: document.getElementById('middle-batch-delete'),
-        rightSelectAll: document.getElementById('right-select-all'),
-        rightBatchRestore: document.getElementById('right-batch-restore'),
-        rightBatchDelete: document.getElementById('right-batch-delete'),
-        trashSelectAll: document.getElementById('trash-select-all'),
-        trashBatchRestore: document.getElementById('trash-batch-restore'),
-        trashBatchDelete: document.getElementById('trash-batch-delete'),
     };
 
     function escapeHtml(value) {
@@ -1397,24 +1356,6 @@ $isAdmin = tp_is_admin();
             els.message.className = 'message';
             els.message.textContent = '';
         }, 3500);
-    }
-
-    function getSectionView(section) {
-        return localStorage.getItem(`telepraxis_view_${section}`) === 'table' ? 'table' : 'cards';
-    }
-
-    function setSectionView(section, view) {
-        localStorage.setItem(`telepraxis_view_${section}`, view === 'table' ? 'table' : 'cards');
-        updateViewButtons();
-        render(lastEntries);
-    }
-
-    function updateViewButtons() {
-        document.querySelectorAll('[data-view-set]').forEach(button => {
-            const section = button.getAttribute('data-view-set');
-            const view = button.getAttribute('data-view');
-            button.classList.toggle('active-view', getSectionView(section) === view);
-        });
     }
 
     function loadSummaryState() {
@@ -1451,15 +1392,55 @@ $isAdmin = tp_is_admin();
             els.trashToggle.checked = localStorage.getItem('telepraxis_show_trash') === '1';
         }
         loadSummaryState();
-        updateViewButtons();
         applyVisibilitySettings();
+    }
+
+    function hideBookmarkOpenButton() {
+        lastBookmarkUrl = '';
+        if (els.bookmarkOpenBtn) {
+            els.bookmarkOpenBtn.hidden = true;
+        }
     }
 
     function saveWorkplace() {
         const workplace = currentWorkplace();
         els.workplaceInput.value = workplace;
         localStorage.setItem('telepraxis_workplace', workplace);
-        showMessage(workplace ? `Arbeitsplatz gespeichert: ${workplace}` : 'Arbeitsplatz geleert.');
+        hideBookmarkOpenButton();
+        showMessage(workplace ? `Platz gespeichert: ${workplace}` : 'Platz geleert.');
+    }
+
+    function buildBookmarkUrl() {
+        const workplace = currentWorkplace();
+        if (!workplace) {
+            return '';
+        }
+        const url = new URL(window.location.href);
+        url.hash = '';
+        url.search = '';
+        url.searchParams.set('arbeitsplatz', workplace);
+        return url.toString();
+    }
+
+    async function createBookmarkLink() {
+        const url = buildBookmarkUrl();
+        if (!url) {
+            showMessage('Bitte zuerst einen Platz eintragen.', true);
+            return;
+        }
+        await copyText(url);
+        lastBookmarkUrl = url;
+        if (els.bookmarkOpenBtn) {
+            els.bookmarkOpenBtn.hidden = false;
+        }
+        showMessage('Bookmark-Link in die Zwischenablage kopiert.');
+    }
+
+    function openBookmarkLink() {
+        if (!lastBookmarkUrl) {
+            return;
+        }
+        window.open(lastBookmarkUrl, '_blank');
     }
 
     function applyVisibilitySettings() {
@@ -1496,25 +1477,25 @@ $isAdmin = tp_is_admin();
         if (!audioContext) return;
 
         const now = audioContext.currentTime;
-        const starts = [0, 0.20, 0.40, 0.60];
-        const durations = [0.11, 0.11, 0.11, 0.33];
+        const gain = audioContext.createGain();
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+        gain.connect(audioContext.destination);
 
-        starts.forEach((offset, index) => {
-            const gain = audioContext.createGain();
-            const startAt = now + offset;
-            const duration = durations[index];
-            gain.gain.setValueAtTime(0.0001, startAt);
-            gain.gain.exponentialRampToValueAtTime(0.18, startAt + 0.01);
-            gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
-            gain.connect(audioContext.destination);
+        const osc1 = audioContext.createOscillator();
+        osc1.type = 'triangle';
+        osc1.frequency.setValueAtTime(880, now);
+        osc1.connect(gain);
+        osc1.start(now);
+        osc1.stop(now + 0.16);
 
-            const osc = audioContext.createOscillator();
-            osc.type = 'triangle';
-            osc.frequency.setValueAtTime(1046, startAt);
-            osc.connect(gain);
-            osc.start(startAt);
-            osc.stop(startAt + duration);
-        });
+        const osc2 = audioContext.createOscillator();
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(1320, now + 0.19);
+        osc2.connect(gain);
+        osc2.start(now + 0.19);
+        osc2.stop(now + 0.36);
     }
 
     function sortMiddle(a, b) {
@@ -1534,68 +1515,46 @@ $isAdmin = tp_is_admin();
         return String(b.last_updated_at || '').localeCompare(String(a.last_updated_at || ''));
     }
 
-    function syncSelections(section, entries) {
-        visibleFiles[section] = new Set(entries.map(entry => String(entry.file || '')));
-        for (const file of Array.from(selectedFiles[section])) {
-            if (!visibleFiles[section].has(file)) {
-                selectedFiles[section].delete(file);
-            }
-        }
-    }
-
-    function updateDocumentTitle(entries) {
-        const newCount = entries.filter(entry => !entry.deleted && entry.status === 'neu').length;
-        document.title = `Neu: ${newCount} – ${baseTitle}`;
-    }
-
-    function createActionButtons(entry, placement, compact = false) {
+    function createActionButtons(entry, placement) {
         const file = escapeHtml(entry.file);
-        const classes = compact ? 'actions-inline' : 'actions';
-
         if (placement === 'trash') {
             return `
-                <div class="${classes}">
+                <div class="actions">
                     <button class="btn btn-primary" data-action="restore" data-file="${file}">Wiederherstellen</button>
-                    <button class="btn btn-danger" data-action="purge" data-file="${file}" data-confirm="Diesen Eintrag endgültig löschen?">Löschen</button>
+                    <button class="btn btn-danger" data-action="purge" data-file="${file}">Endgültig löschen</button>
                 </div>`;
         }
-
         if (placement === 'middle') {
-            if (compact) {
-                return `
-                    <div class="${classes}">
-                        <button class="btn ${entry.urgent ? 'btn-danger' : ''}" data-action="toggle_urgent" data-file="${file}">Dringend</button>
-                    </div>`;
-            }
             return `
-                <div class="${classes}">
-                    <button class="btn btn-primary" data-action="set_status" data-status="in_bearbeitung" data-file="${file}">Bearbeiten</button>
+                <div class="actions">
+                    <button class="btn btn-primary" data-action="set_status" data-status="in_bearbeitung" data-file="${file}">Bearbeitung</button>
                     <button class="btn ${entry.urgent ? 'btn-danger' : ''}" data-action="toggle_urgent" data-file="${file}">Dringend</button>
-                    <button class="btn btn-danger" data-action="soft_delete" data-file="${file}">Löschen</button>
                 </div>`;
         }
-
         if (placement === 'left') {
             return `
-                <div class="${classes}">
-                    <button class="btn" data-action="set_status" data-status="neu" data-file="${file}">Zurücksetzen</button>
+                <div class="actions">
                     <button class="btn btn-primary" data-action="set_status" data-status="abgeschlossen" data-file="${file}">Fertig</button>
+                    <button class="btn" data-action="set_status" data-status="neu" data-file="${file}">Zurücksetzen</button>
                     <button class="btn btn-danger" data-action="soft_delete" data-file="${file}">Löschen</button>
                     <button class="btn ${entry.urgent ? 'btn-danger' : ''}" data-action="toggle_urgent" data-file="${file}">Dringend</button>
+                    <button class="btn" type="button" data-toggle-comment="${file}">Kommentar</button>
+                    <button class="btn btn-icon" type="button" data-print-card="${file}" title="Drucken" aria-label="Drucken">🖨</button>
+                    <button class="btn btn-icon" type="button" data-copy-card="${file}" title="Karte in die Zwischenablage" aria-label="Karte in die Zwischenablage">📋</button>
                 </div>`;
         }
-
         return `
-            <div class="${classes}">
-                <button class="btn" data-action="set_status" data-status="neu" data-file="${file}">Wiederherstellen</button>
+            <div class="actions">
                 <button class="btn btn-danger" data-action="soft_delete" data-file="${file}">Löschen</button>
+                <button class="btn" data-action="set_status" data-status="neu" data-file="${file}">Zurücksetzen</button>
             </div>`;
     }
 
-    function createHeader(entry) {
+    function createHeader(entry, placement) {
+        const nameLineClass = placement === 'left' ? 'header-line name-line name-line-left' : 'header-line name-line';
         const nameLine = entry.person_display
             ? `
-                <div class="header-line name-line">
+                <div class="${nameLineClass}">
                     <button type="button" class="name-button" data-copy-name="${escapeHtml(entry.person_copy || '')}" title="${escapeHtml(entry.person_display)}">
                         <span class="name-main">${escapeHtml(entry.person_name || '')}</span>
                     </button>
@@ -1609,7 +1568,7 @@ $isAdmin = tp_is_admin();
 
         const urgentNode = entry.urgent ? '<span class="urgent-mark">!</span>' : '';
         const workplaceNode = (entry.status === 'in_bearbeitung' && entry.last_workplace)
-            ? `<span class="workplace-chip" title="${escapeHtml(entry.last_workplace)}">bei ${escapeHtml(entry.last_workplace)}</span>`
+            ? `<span class="workplace-chip" title="${escapeHtml(entry.last_workplace)}">bei Platz ${escapeHtml(entry.last_workplace)}</span>`
             : '';
 
         return `
@@ -1629,6 +1588,40 @@ $isAdmin = tp_is_admin();
             </div>`;
     }
 
+    function createCommentItems(entry) {
+        const comments = Array.isArray(entry.comments) ? entry.comments.filter(comment => comment && comment.text) : [];
+        if (!comments.length) {
+            return '';
+        }
+        return `
+            <div class="detail-block">
+                <h4>Kommentare</h4>
+                <div class="comments-list">
+                    ${comments.map(comment => `
+                        <div class="comment-item">
+                            <div class="comment-meta">${escapeHtml(comment.created_at_display || '—')} · Platz: ${escapeHtml(comment.workplace || '—')}</div>
+                            <div class="comment-text">${escapeHtml(comment.text || '')}</div>
+                        </div>`).join('')}
+                </div>
+            </div>`;
+    }
+
+    function createCommentEditor(entry) {
+        const file = String(entry.file || '');
+        if (!openCommentFiles.has(file)) {
+            return '';
+        }
+        const draft = commentDrafts.get(file) || '';
+        return `
+            <div class="comment-editor">
+                <textarea rows="3" data-comment-input="${escapeHtml(file)}" placeholder="Kommentar eingeben">${escapeHtml(draft)}</textarea>
+                <div class="comment-editor-actions">
+                    <button class="btn btn-primary" type="button" data-save-comment="${escapeHtml(file)}">Speichern</button>
+                    <button class="btn" type="button" data-toggle-comment="${escapeHtml(file)}">Schließen</button>
+                </div>
+            </div>`;
+    }
+
     function createLeftExtras(entry) {
         const isSummaryOpen = openSummaryFiles.has(String(entry.file || ''));
         const summaryBlock = entry.summary
@@ -1642,18 +1635,12 @@ $isAdmin = tp_is_admin();
 
         return `
             ${summaryBlock}
-            <div class="transmitted-row"><strong>Übermittelte Telefonnummer:</strong> ${transmittedNode}</div>`;
+            <div class="transmitted-row"><strong>Übermittelte Telefonnummer:</strong> ${transmittedNode}</div>
+            ${createCommentItems(entry)}
+            ${createCommentEditor(entry)}`;
     }
 
-    function createSelectionControl(section, entry, checkboxOnly = false) {
-        return `
-            <label class="selection-label${checkboxOnly ? ' only-checkbox' : ''}">
-                <input type="checkbox" data-select-section="${escapeHtml(section)}" data-file="${escapeHtml(entry.file)}"${selectedFiles[section].has(entry.file) ? ' checked' : ''}>
-                ${checkboxOnly ? '' : 'Auswählen'}
-            </label>`;
-    }
-
-    function createCard(entry, placement, section = '') {
+    function createCard(entry, placement) {
         const classes = ['card', `status-${entry.status}`];
         if (entry.urgent) classes.push('urgent');
         const bodyClass = placement === 'left' ? 'body-full' : 'body-preview';
@@ -1663,9 +1650,8 @@ $isAdmin = tp_is_admin();
             : '';
 
         return `
-            <article class="${classes.join(' ')}">
-                ${section ? `<div class="selection-row">${createSelectionControl(section, entry)}</div>` : ''}
-                ${createHeader(entry)}
+            <article class="${classes.join(' ')}" data-entry-file="${escapeHtml(entry.file || '')}">
+                ${createHeader(entry, placement)}
                 <div class="card-body ${bodyClass}" title="${bodyTitle}">${escapeHtml(entry.body || '—')}</div>
                 ${placement === 'left' ? createLeftExtras(entry) : ''}
                 ${deletedExtra}
@@ -1677,62 +1663,6 @@ $isAdmin = tp_is_admin();
         return `<div class="empty">${escapeHtml(text)}</div>`;
     }
 
-    function createNameCell(entry, dateText = '') {
-        if (!entry.person_display) {
-            return `
-                <div class="table-name-wrap">
-                    <div>—</div>
-                    ${dateText ? `<div class="table-name-meta">${escapeHtml(dateText)}</div>` : ''}
-                </div>`;
-        }
-        return `
-            <div class="table-name-wrap">
-                <div class="table-name-mainline">
-                    <button type="button" class="name-button" data-copy-name="${escapeHtml(entry.person_copy || '')}" title="${escapeHtml(entry.person_display)}">
-                        <span class="name-main">${escapeHtml(entry.person_name || '')}</span>
-                    </button>
-                    ${entry.person_birth_date ? `<span class="name-birth" data-copy-birth="${escapeHtml(entry.person_birth_date)}" title="${escapeHtml(entry.person_birth_date)}">${escapeHtml(entry.person_birth_date)}</span>` : ''}
-                </div>
-                ${dateText ? `<div class="table-name-meta">${escapeHtml(dateText)}</div>` : ''}
-            </div>`;
-    }
-
-    function createTable(section, entries) {
-        const headings = `
-                <tr>
-                    <th class="table-checkbox-cell"></th>
-                    <th class="table-category-cell">Kategorie</th>
-                    <th class="table-name-cell">Name</th>
-                    <th>Inhalt</th>
-                    <th class="table-actions-cell">Aktionen</th>
-                </tr>`;
-
-        const placement = section === 'middle' ? 'middle' : (section === 'trash' ? 'trash' : 'right');
-        const rows = entries.map(entry => {
-            const dateText = entry.received_at_display || '—';
-            return `
-            <tr class="status-${escapeHtml(entry.status)}${entry.urgent ? ' urgent' : ''}">
-                <td class="table-checkbox-cell">${createSelectionControl(section, entry, true)}</td>
-                <td class="table-category-cell">
-                    <span class="category-tag">${escapeHtml(entry.category_label)}</span>
-                    ${entry.urgent ? '<div class="urgent-mark">!</div>' : ''}
-                </td>
-                <td class="table-name-cell">${createNameCell(entry, dateText)}</td>
-                <td class="table-body-cell"><div class="table-body-text" title="${escapeHtml(entry.body || '')}">${escapeHtml(entry.body || '—')}</div></td>
-                <td class="table-actions-cell">${createActionButtons(entry, placement, true)}</td>
-            </tr>
-        `;
-        }).join('');
-
-        return `
-            <div class="table-wrap">
-                <table class="entry-table">
-                    <thead>${headings}</thead>
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>`;
-    }
-
     function renderStats(entries) {
         const workplace = currentWorkplace() || '—';
         const active = entries.filter(e => !e.deleted);
@@ -1742,7 +1672,7 @@ $isAdmin = tp_is_admin();
         const dringend = active.filter(e => e.urgent).length;
         const geloescht = entries.filter(e => e.deleted).length;
         const pills = [
-            `Arbeitsplatz: ${workplace}`,
+            `Platz: ${workplace}`,
             `Neu: ${neu}`,
             `In Bearbeitung: ${bearbeitung}`,
             `Abgeschlossen: ${abgeschlossen}`,
@@ -1752,39 +1682,58 @@ $isAdmin = tp_is_admin();
         els.statsBar.innerHTML = pills.map(text => `<div class="stat">${escapeHtml(text)}</div>`).join('');
     }
 
-    function renderSelectableSection(section, entries, emptyText) {
-        syncSelections(section, entries);
-        if (!entries.length) {
-            return createEmpty(emptyText);
+    function getActiveCommentState() {
+        const active = document.activeElement;
+        if (!(active instanceof HTMLTextAreaElement) || !active.hasAttribute('data-comment-input')) {
+            return null;
         }
+        const file = String(active.getAttribute('data-comment-input') || '');
+        if (!file) {
+            return null;
+        }
+        commentDrafts.set(file, active.value || '');
+        return {
+            file,
+            start: typeof active.selectionStart === 'number' ? active.selectionStart : null,
+            end: typeof active.selectionEnd === 'number' ? active.selectionEnd : null,
+            scrollTop: active.scrollTop || 0,
+        };
+    }
 
-        if (getSectionView(section) === 'table') {
-            return createTable(section, entries);
+    function restoreActiveCommentState(state) {
+        if (!state || !state.file) {
+            return;
         }
-
-        if (section === 'middle') {
-            return `<div class="middle-grid">${entries.map(entry => createCard(entry, 'middle', 'middle')).join('')}</div>`;
+        const input = Array.from(document.querySelectorAll('[data-comment-input]')).find(node => String(node.getAttribute('data-comment-input') || '') === state.file);
+        if (!(input instanceof HTMLTextAreaElement)) {
+            return;
         }
-        if (section === 'right') {
-            return `<div class="stack-list">${entries.map(entry => createCard(entry, 'right', 'right')).join('')}</div>`;
+        input.focus({ preventScroll: true });
+        if (typeof state.start === 'number' && typeof state.end === 'number') {
+            try {
+                input.setSelectionRange(state.start, state.end);
+            } catch (error) {
+                // ignorieren
+            }
         }
-        return `<div class="stack-list">${entries.map(entry => createCard(entry, 'trash', 'trash')).join('')}</div>`;
+        if (typeof state.scrollTop === 'number') {
+            input.scrollTop = state.scrollTop;
+        }
     }
 
     function render(entries) {
+        const activeCommentState = getActiveCommentState();
         lastEntries = Array.isArray(entries) ? entries : [];
-        updateDocumentTitle(lastEntries);
-
         const workplace = currentWorkplace();
         const left = lastEntries.filter(entry => !entry.deleted && entry.status === 'in_bearbeitung' && workplace !== '' && entry.last_workplace === workplace).sort(sortLeft);
         const middle = lastEntries.filter(entry => !entry.deleted && (entry.status === 'neu' || (entry.status === 'in_bearbeitung' && (workplace === '' || entry.last_workplace !== workplace)))).sort(sortMiddle);
         const right = lastEntries.filter(entry => !entry.deleted && entry.status === 'abgeschlossen').sort(sortRight);
         const trash = lastEntries.filter(entry => entry.deleted).sort(sortRight);
 
-        els.leftColumn.innerHTML = left.length ? `<div class="stack-list">${left.map(entry => createCard(entry, 'left')).join('')}</div>` : createEmpty('Keine Vorgänge in Bearbeitung.');
-        els.middleBody.innerHTML = renderSelectableSection('middle', middle, 'Keine neuen Eingänge.');
-        els.rightBody.innerHTML = renderSelectableSection('right', right, 'Keine abgeschlossenen Vorgänge.');
-        els.trashBody.innerHTML = renderSelectableSection('trash', trash, 'Papierkorb ist leer.');
+        els.leftColumn.innerHTML = left.length ? left.map(entry => createCard(entry, 'left')).join('') : createEmpty('Keine Vorgänge in Bearbeitung.');
+        els.middleColumn.innerHTML = middle.length ? middle.map(entry => createCard(entry, 'middle')).join('') : createEmpty('Keine neuen Eingänge.');
+        els.rightColumn.innerHTML = right.length ? right.map(entry => createCard(entry, 'right')).join('') : createEmpty('Keine abgeschlossenen Vorgänge.');
+        els.trashBody.innerHTML = trash.length ? trash.map(entry => createCard(entry, 'trash')).join('') : createEmpty('Papierkorb ist leer.');
 
         els.countLeft.textContent = String(left.length);
         els.countMiddle.textContent = String(middle.length);
@@ -1792,7 +1741,110 @@ $isAdmin = tp_is_admin();
         els.countTrash.textContent = String(trash.length);
 
         renderStats(lastEntries);
-        updateViewButtons();
+        restoreActiveCommentState(activeCommentState);
+    }
+
+    function getEntryByFile(file) {
+        return lastEntries.find(entry => String(entry.file || '') === String(file || '')) || null;
+    }
+
+    function buildCardText(entry) {
+        if (!entry) return '';
+        const lines = [];
+        if (entry.urgent) {
+            lines.push('DRINGEND');
+            lines.push('');
+        }
+        lines.push(`Kategorie: ${entry.category_label || '—'}`);
+        lines.push(`Name: ${entry.person_name || '—'}`);
+        if (entry.person_birth_date) {
+            lines.push(`Geburtsdatum: ${entry.person_birth_date}`);
+        }
+        lines.push(`Telefon: ${entry.telephone_display || '—'}`);
+        lines.push(`Eingang: ${entry.received_at_display || '—'}`);
+        if (entry.last_workplace) {
+            lines.push(`Platz: ${entry.last_workplace}`);
+        }
+        lines.push('');
+        lines.push('Inhalt:');
+        lines.push(entry.body || '—');
+        if (entry.summary) {
+            lines.push('');
+            lines.push('Zusammenfassung des Gesprächs:');
+            lines.push(entry.summary);
+        }
+        lines.push('');
+        lines.push(`Übermittelte Telefonnummer: ${entry.transmitted_phone_display || '—'}`);
+        const comments = Array.isArray(entry.comments) ? entry.comments.filter(comment => comment && comment.text) : [];
+        if (comments.length) {
+            lines.push('');
+            lines.push('Kommentare:');
+            comments.forEach(comment => {
+                lines.push(`${comment.created_at_display || '—'} · Platz: ${comment.workplace || '—'}`);
+                lines.push(comment.text || '');
+                lines.push('');
+            });
+            while (lines.length && lines[lines.length - 1] === '') {
+                lines.pop();
+            }
+        }
+        return lines.join('\n');
+    }
+
+    function printCard(entry) {
+        const text = buildCardText(entry);
+        if (!text) {
+            return;
+        }
+        const printableText = entry.urgent ? text.replace(/^DRINGEND\n\n/, '') : text;
+        const urgentBlock = entry.urgent ? '<div style="border:2px solid #000;padding:8px 10px;font-weight:700;font-size:18px;margin-bottom:12px;">DRINGEND</div>' : '';
+        const html = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>Druckansicht</title><style>html,body{margin:0;padding:0;background:#fff;color:#000}body{font-family:Arial,sans-serif;padding:20px}pre{white-space:pre-wrap;font:14px/1.4 Arial,sans-serif;margin:0}</style></head><body>${urgentBlock}<pre>${escapeHtml(printableText)}</pre><script>window.addEventListener('load',function(){setTimeout(function(){window.focus();window.print();},150);});<\/script></body></html>`;
+        const win = window.open('', '_blank', 'width=900,height=700');
+        if (!win) {
+            showMessage('Druckfenster konnte nicht geöffnet werden.', true);
+            return;
+        }
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+    }
+
+    async function copyCard(entry) {
+        const text = buildCardText(entry);
+        if (!text) {
+            return;
+        }
+        await copyText(text);
+        showMessage('Karte in die Zwischenablage kopiert.');
+    }
+
+    async function saveComment(file) {
+        const draft = String(commentDrafts.get(file) || '').trim();
+        if (!draft) {
+            showMessage('Kommentar fehlt.', true);
+            return;
+        }
+        const workplace = currentWorkplace();
+        if (!workplace) {
+            showMessage('Bitte zuerst einen Platz eintragen.', true);
+            return;
+        }
+        const formData = new FormData();
+        formData.set('csrf', currentCsrf);
+        formData.set('action', 'add_comment');
+        formData.set('file', file);
+        formData.set('workplace', workplace);
+        formData.set('comment_text', draft);
+
+        try {
+            await apiRequest(formData);
+            commentDrafts.delete(file);
+            openCommentFiles.delete(file);
+            await refresh();
+            showMessage('Kommentar gespeichert.');
+        } catch (error) {
+            showMessage(error.message || 'Kommentar konnte nicht gespeichert werden.', true);
+        }
     }
 
     async function apiRequest(formData) {
@@ -1836,80 +1888,25 @@ $isAdmin = tp_is_admin();
         }
     }
 
-    async function submitSingleAction(action, file, status = '') {
-        const formData = new FormData();
-        formData.set('csrf', currentCsrf);
-        formData.set('action', action);
-        formData.set('file', file);
-        formData.set('workplace', currentWorkplace());
-        if (status) {
-            formData.set('status', status);
-        }
-        return apiRequest(formData);
-    }
-
     async function handleAction(target) {
         const action = target.getAttribute('data-action');
         if (!action) return;
 
-        const confirmText = target.getAttribute('data-confirm');
-        if (confirmText && !window.confirm(confirmText)) {
-            return;
+        const formData = new FormData();
+        formData.set('csrf', currentCsrf);
+        formData.set('action', action);
+        formData.set('file', target.getAttribute('data-file') || '');
+        formData.set('workplace', currentWorkplace());
+        if (target.hasAttribute('data-status')) {
+            formData.set('status', target.getAttribute('data-status') || '');
         }
 
         try {
-            await submitSingleAction(action, target.getAttribute('data-file') || '', target.getAttribute('data-status') || '');
+            await apiRequest(formData);
             await refresh();
         } catch (error) {
             showMessage(error.message || 'Aktion fehlgeschlagen.', true);
         }
-    }
-
-    async function runBatch(section, mode) {
-        const files = Array.from(selectedFiles[section]);
-        if (!files.length) {
-            showMessage('Bitte zuerst mindestens einen Eintrag auswählen.', true);
-            return;
-        }
-
-        if (section === 'middle' && mode === 'delete') {
-            if (!window.confirm(`Die ${files.length} markierten Einträge in „Neu“ wirklich löschen?`)) {
-                return;
-            }
-        }
-
-        if (section === 'trash' && mode === 'purge') {
-            if (!window.confirm(`Die ${files.length} markierten Einträge endgültig löschen?`)) {
-                return;
-            }
-        }
-
-        try {
-            for (const file of files) {
-                if (section === 'middle' && mode === 'edit') {
-                    await submitSingleAction('set_status', file, 'in_bearbeitung');
-                } else if (section === 'middle' && mode === 'delete') {
-                    await submitSingleAction('soft_delete', file);
-                } else if (section === 'right' && mode === 'restore') {
-                    await submitSingleAction('set_status', file, 'neu');
-                } else if (section === 'right' && mode === 'delete') {
-                    await submitSingleAction('soft_delete', file);
-                } else if (section === 'trash' && mode === 'restore') {
-                    await submitSingleAction('restore', file);
-                } else if (section === 'trash' && mode === 'purge') {
-                    await submitSingleAction('purge', file);
-                }
-                selectedFiles[section].delete(file);
-            }
-            await refresh();
-        } catch (error) {
-            showMessage(error.message || 'Sammelaktion fehlgeschlagen.', true);
-        }
-    }
-
-    function selectAllVisible(section) {
-        visibleFiles[section].forEach(file => selectedFiles[section].add(file));
-        render(lastEntries);
     }
 
     async function adminLogin() {
@@ -1966,40 +1963,68 @@ $isAdmin = tp_is_admin();
     }
 
     document.addEventListener('click', event => {
-        const viewButton = event.target.closest('[data-view-set]');
-        if (viewButton) {
-            event.preventDefault();
-            setSectionView(viewButton.getAttribute('data-view-set') || '', viewButton.getAttribute('data-view') || 'cards');
-            return;
-        }
-
         const actionButton = event.target.closest('[data-action]');
         if (actionButton) {
             event.preventDefault();
             handleAction(actionButton);
             return;
         }
-
-        const batchButton = event.target.closest('[data-batch]');
-        if (batchButton) {
+        const toggleCommentButton = event.target.closest('[data-toggle-comment]');
+        if (toggleCommentButton) {
             event.preventDefault();
-            const section = batchButton.getAttribute('data-section') || '';
-            const mode = batchButton.getAttribute('data-batch') || '';
-            if (mode === 'select_all') {
-                selectAllVisible(section);
+            const file = String(toggleCommentButton.getAttribute('data-toggle-comment') || '');
+            if (!file) {
+                return;
+            }
+            const shouldOpen = !openCommentFiles.has(file);
+            if (shouldOpen) {
+                openCommentFiles.add(file);
             } else {
-                runBatch(section, mode);
+                openCommentFiles.delete(file);
+            }
+            render(lastEntries);
+            if (shouldOpen) {
+                const input = Array.from(document.querySelectorAll('[data-comment-input]')).find(node => String(node.getAttribute('data-comment-input') || '') === file);
+                if (input instanceof HTMLTextAreaElement) {
+                    input.focus();
+                }
             }
             return;
         }
-
+        const saveCommentButton = event.target.closest('[data-save-comment]');
+        if (saveCommentButton) {
+            event.preventDefault();
+            const file = String(saveCommentButton.getAttribute('data-save-comment') || '');
+            if (!file) {
+                return;
+            }
+            saveComment(file);
+            return;
+        }
+        const printButton = event.target.closest('[data-print-card]');
+        if (printButton) {
+            event.preventDefault();
+            const entry = getEntryByFile(printButton.getAttribute('data-print-card') || '');
+            if (entry) {
+                printCard(entry);
+            }
+            return;
+        }
+        const copyCardButton = event.target.closest('[data-copy-card]');
+        if (copyCardButton) {
+            event.preventDefault();
+            const entry = getEntryByFile(copyCardButton.getAttribute('data-copy-card') || '');
+            if (entry) {
+                copyCard(entry);
+            }
+            return;
+        }
         const birthNode = event.target.closest('[data-copy-birth]');
         if (birthNode) {
             event.preventDefault();
             copyText(birthNode.getAttribute('data-copy-birth') || '');
             return;
         }
-
         const copyButton = event.target.closest('[data-copy-name]');
         if (copyButton) {
             event.preventDefault();
@@ -2007,17 +2032,13 @@ $isAdmin = tp_is_admin();
         }
     });
 
-    document.addEventListener('change', event => {
-        const checkbox = event.target.closest('[data-select-section]');
-        if (!checkbox) return;
-        const section = checkbox.getAttribute('data-select-section') || '';
-        const file = checkbox.getAttribute('data-file') || '';
-        if (!section || !file || !selectedFiles[section]) return;
-        if (checkbox.checked) {
-            selectedFiles[section].add(file);
-        } else {
-            selectedFiles[section].delete(file);
+    document.addEventListener('input', event => {
+        const input = event.target.closest('[data-comment-input]');
+        if (!input) {
+            return;
         }
+        const file = String(input.getAttribute('data-comment-input') || '');
+        commentDrafts.set(file, input.value || '');
     });
 
     document.addEventListener('toggle', event => {
@@ -2036,34 +2057,20 @@ $isAdmin = tp_is_admin();
     }, true);
 
     els.saveWorkplaceBtn?.addEventListener('click', saveWorkplace);
+    els.bookmarkLinkBtn?.addEventListener('click', createBookmarkLink);
+    els.bookmarkOpenBtn?.addEventListener('click', openBookmarkLink);
     els.soundToggle?.addEventListener('change', () => localStorage.setItem('telepraxis_sound_enabled', els.soundToggle.checked ? '1' : '0'));
     els.completedToggle?.addEventListener('change', applyVisibilitySettings);
     els.trashToggle?.addEventListener('change', applyVisibilitySettings);
     els.adminLoginBtn?.addEventListener('click', adminLogin);
     els.adminLogoutBtn?.addEventListener('click', adminLogout);
+    els.workplaceInput?.addEventListener('input', hideBookmarkOpenButton);
     els.workplaceInput?.addEventListener('keydown', event => {
         if (event.key === 'Enter') {
             event.preventDefault();
             saveWorkplace();
         }
     });
-
-    els.middleBatchEdit?.setAttribute('data-batch', 'edit');
-    els.middleBatchEdit?.setAttribute('data-section', 'middle');
-    els.middleBatchDelete?.setAttribute('data-batch', 'delete');
-    els.middleBatchDelete?.setAttribute('data-section', 'middle');
-    els.rightSelectAll?.setAttribute('data-batch', 'select_all');
-    els.rightSelectAll?.setAttribute('data-section', 'right');
-    els.rightBatchRestore?.setAttribute('data-batch', 'restore');
-    els.rightBatchRestore?.setAttribute('data-section', 'right');
-    els.rightBatchDelete?.setAttribute('data-batch', 'delete');
-    els.rightBatchDelete?.setAttribute('data-section', 'right');
-    els.trashSelectAll?.setAttribute('data-batch', 'select_all');
-    els.trashSelectAll?.setAttribute('data-section', 'trash');
-    els.trashBatchRestore?.setAttribute('data-batch', 'restore');
-    els.trashBatchRestore?.setAttribute('data-section', 'trash');
-    els.trashBatchDelete?.setAttribute('data-batch', 'purge');
-    els.trashBatchDelete?.setAttribute('data-section', 'trash');
 
     document.addEventListener('pointerdown', ensureAudioContext, { once: true });
     loadLocalSettings();
