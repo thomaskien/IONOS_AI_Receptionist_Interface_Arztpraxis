@@ -1,9 +1,14 @@
 <?php
 /*
  * telepraxis-app.php
- * Version: 3.3.1
+ * Version: 3.4
  *
  * Fortgeführter Changelog (niemals entfernen, nur ergänzen):
+ * - v3.4 (2026-06-25)
+ *   - SMS-Integration für Karten in „In Bearbeitung“ ergänzt: SMS-Button nur bei vorhandener Rückrufnummer, aufklappbares SMS-Feld analog zum Kommentarfeld und Eintrag der versendeten SMS als Kommentar.
+ *   - SMS-Versand über separate Funktionsdatei telepraxis-sms.php angebunden, damit die App-Datei schlank bleibt; der Versand läuft per AJAX mit Sendestatus, damit das Interface während der FRITZ!Box-Wartezeit bedienbar bleibt.
+ * - v3.3.2 (2026-06-25)
+ *   - Darstellungsfix für die rechte Spalte: Vorschautexte in der Tabellenansicht „Abgeschlossen“ werden nun wie in „Neu“ begrenzt; lange ununterbrochene Inhalte brechen in Tabellen- und Kartenvorschauen sauber um.
  * - v3.3.1 (2026-04-14)
  *   - Ausblendelogik der oberen Leiste korrigiert: Der linke Titelblock und das Hamburger-Menü rechts bleiben nun immer sichtbar; bei Platzmangel werden ausschließlich der Mittelteil mit den Statuschips und die zusätzliche Schaltfläche „Abgeschlossen anzeigen“ ausgeblendet.
  * - v3.3 (2026-04-14)
@@ -83,8 +88,11 @@ declare(strict_types=1);
 session_start();
 date_default_timezone_set('Europe/Berlin');
 
+define('TELEPRAXIS_APP', true);
+require_once __DIR__ . '/telepraxis-sms.php';
+
 const TELEPRAXIS_APP_NAME = 'telepraxis-app';
-const TELEPRAXIS_APP_VERSION = '3.3.1';
+const TELEPRAXIS_APP_VERSION = '3.4';
 const TELEPRAXIS_INBOX_DIR = __DIR__ . DIRECTORY_SEPARATOR . 'inbox';
 const TELEPRAXIS_POLL_INTERVAL_MS = 5000;
 const TELEPRAXIS_DEFAULT_TIMEZONE = 'Europe/Berlin';
@@ -312,6 +320,11 @@ function tp_payload_value(array $payload, array $keys): string
     return '';
 }
 
+function tp_entry_callback_phone_raw(array $entry): string
+{
+    return tp_payload_value(tp_payload($entry), ['telefon']);
+}
+
 function tp_entry_category_key(array $entry): string
 {
     $typ = tp_entry_typ($entry);
@@ -460,6 +473,7 @@ function tp_build_entry_view(array $entry, string $fileName): array
     $person = tp_person_strings($payload);
 
     $summary = tp_payload_value($payload, ['zusammenfassung']);
+    $callbackPhoneRaw = tp_entry_callback_phone_raw($entry);
     $displayPhoneRaw = tp_payload_value($payload, ['telefon']);
     $transmittedPhoneRaw = tp_payload_value($payload, ['id', 'anrufer_id']);
     if ($displayPhoneRaw === '') {
@@ -501,6 +515,9 @@ function tp_build_entry_view(array $entry, string $fileName): array
         'telephone_display' => tp_normalize_phone($displayPhoneRaw),
         'telephone_href' => tp_valid_tel_href($displayPhoneRaw),
         'telephone_raw' => $displayPhoneRaw,
+        'sms_phone_display' => tp_normalize_phone($callbackPhoneRaw),
+        'sms_phone_href' => tp_valid_tel_href($callbackPhoneRaw),
+        'sms_phone_raw' => $callbackPhoneRaw,
         'transmitted_phone_display' => tp_normalize_phone($transmittedPhoneRaw) !== '' ? tp_normalize_phone($transmittedPhoneRaw) : $transmittedPhoneRaw,
         'transmitted_phone_href' => tp_valid_tel_href($transmittedPhoneRaw),
         'transmitted_phone_raw' => $transmittedPhoneRaw,
@@ -556,14 +573,19 @@ function tp_collect_stats(array $entries): array
     return $stats;
 }
 
-function tp_update_file(string $fileName, callable $mutator): array
+function tp_inbox_file_path(string $fileName): string
 {
     $safeFile = basename($fileName);
     if (!preg_match('/^[A-Za-z0-9._-]+\.json$/', $safeFile)) {
         throw new RuntimeException('Ungültiger Dateiname.');
     }
 
-    $path = TELEPRAXIS_INBOX_DIR . DIRECTORY_SEPARATOR . $safeFile;
+    return TELEPRAXIS_INBOX_DIR . DIRECTORY_SEPARATOR . $safeFile;
+}
+
+function tp_update_file(string $fileName, callable $mutator): array
+{
+    $path = tp_inbox_file_path($fileName);
     if (!is_file($path)) {
         throw new RuntimeException('Datei nicht gefunden.');
     }
@@ -632,6 +654,23 @@ function tp_apply_status(array $entry, string $status, string $workplace): array
     if ($status === 'abgeschlossen') {
         $entry['app']['completed_at'] = tp_now_iso();
     }
+    return $entry;
+}
+
+function tp_append_comment(array $entry, string $text, string $workplace, string $lastAction): array
+{
+    $entry = tp_ensure_entry_app($entry);
+    if (!isset($entry['app']['comments']) || !is_array($entry['app']['comments'])) {
+        $entry['app']['comments'] = [];
+    }
+    $entry['app']['comments'][] = [
+        'text' => $text,
+        'created_at' => tp_now_iso(),
+        'workplace' => $workplace,
+    ];
+    $entry['app']['status_updated_at'] = tp_now_iso();
+    $entry['app']['status_updated_arbeitsplatz'] = $workplace;
+    $entry['app']['last_action'] = $lastAction;
     return $entry;
 }
 
@@ -717,21 +756,57 @@ function tp_handle_api(): void
                 tp_json_response(['ok' => false, 'error' => 'Kommentar fehlt.'], 400);
             }
             $updated = tp_update_file($file, function (array $entry) use ($workplace, $commentText): array {
-                $entry = tp_ensure_entry_app($entry);
-                if (!isset($entry['app']['comments']) || !is_array($entry['app']['comments'])) {
-                    $entry['app']['comments'] = [];
-                }
-                $entry['app']['comments'][] = [
-                    'text' => $commentText,
-                    'created_at' => tp_now_iso(),
-                    'workplace' => $workplace,
-                ];
-                $entry['app']['status_updated_at'] = tp_now_iso();
-                $entry['app']['status_updated_arbeitsplatz'] = $workplace;
-                $entry['app']['last_action'] = 'add_comment';
-                return $entry;
+                return tp_append_comment($entry, $commentText, $workplace, 'add_comment');
             });
             tp_action_response($updated, $file);
+        }
+
+        if ($action === 'send_sms') {
+            $smsText = trim((string)($_POST['sms_text'] ?? ''));
+            if ($smsText === '') {
+                tp_json_response(['ok' => false, 'error' => 'SMS-Text fehlt.'], 400);
+            }
+            if ($workplace === '') {
+                tp_json_response(['ok' => false, 'error' => 'Bitte zuerst einen Platz eintragen.'], 400);
+            }
+
+            $safeFile = basename($file);
+            $path = tp_inbox_file_path($safeFile);
+            $entry = tp_read_json_file($path);
+            if (!is_array($entry)) {
+                tp_json_response(['ok' => false, 'error' => 'Datei konnte nicht gelesen werden.'], 400);
+            }
+            $entry = tp_ensure_entry_app($entry);
+            $view = tp_build_entry_view($entry, $safeFile);
+            if (!empty($view['deleted']) || $view['status'] !== 'in_bearbeitung') {
+                tp_json_response(['ok' => false, 'error' => 'SMS nur für Karten in Bearbeitung möglich.'], 400);
+            }
+            if ($view['last_workplace'] !== '' && $view['last_workplace'] !== $workplace) {
+                tp_json_response(['ok' => false, 'error' => 'SMS nur am aktuell bearbeitenden Platz möglich.'], 400);
+            }
+
+            $callbackRaw = tp_entry_callback_phone_raw($entry);
+            $recipient = tp_valid_tel_href($callbackRaw);
+            if ($recipient === '') {
+                tp_json_response(['ok' => false, 'error' => 'Keine gültige Rückrufnummer für SMS vorhanden.'], 400);
+            }
+
+            $smsResult = tp_sms_send_default($recipient, $smsText);
+            if (($smsResult['provider'] ?? '') === 'none') {
+                tp_json_response(['ok' => false, 'error' => 'SMS-Versand ist deaktiviert.'], 400);
+            }
+
+            $commentText = 'SMS an Rückrufnummer ' . (tp_normalize_phone($callbackRaw) ?: $recipient) . ":\n" . $smsText;
+            $updated = tp_update_file($safeFile, function (array $entry) use ($workplace, $commentText): array {
+                return tp_append_comment($entry, $commentText, $workplace, 'send_sms');
+            });
+            tp_json_response([
+                'ok' => true,
+                'message' => 'SMS gesendet und als Kommentar gespeichert.',
+                'entry' => tp_build_entry_view($updated, $safeFile),
+                'provider' => (string)($smsResult['provider'] ?? ''),
+                'csrf' => tp_get_csrf_token(),
+            ]);
         }
 
         if ($action === 'restore') {
@@ -1214,6 +1289,8 @@ $isAdmin = tp_is_admin();
             white-space: pre-wrap;
             line-height: 1.35;
             min-width: 220px;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
         .table-preview.table-preview-clamped {
             overflow: hidden;
@@ -1374,6 +1451,8 @@ $isAdmin = tp_is_admin();
             -webkit-line-clamp: 4;
             white-space: pre-wrap;
             text-overflow: ellipsis;
+            overflow-wrap: anywhere;
+            word-break: break-word;
             min-height: 5.55em;
             max-height: 5.55em;
         }
@@ -1641,7 +1720,10 @@ $isAdmin = tp_is_admin();
     let lastBookmarkUrl = '';
     const openSummaryFiles = new Set();
     const openCommentFiles = new Set();
+    const openSmsFiles = new Set();
     const commentDrafts = new Map();
+    const smsDrafts = new Map();
+    const smsSendingFiles = new Set();
     const selected = {
         middle: new Set(),
         right: new Set(),
@@ -1966,6 +2048,7 @@ $isAdmin = tp_is_admin();
         const active = document.activeElement;
         const state = {
             commentFocus: null,
+            smsFocus: null,
             scrolls: {
                 left: els.leftColumn ? els.leftColumn.scrollTop : 0,
                 middle: els.middleBody ? els.middleBody.scrollTop : 0,
@@ -1976,6 +2059,13 @@ $isAdmin = tp_is_admin();
         if (active && active.matches && active.matches('[data-comment-input]')) {
             state.commentFocus = {
                 file: String(active.getAttribute('data-comment-input') || ''),
+                start: active.selectionStart ?? null,
+                end: active.selectionEnd ?? null,
+            };
+        }
+        if (active && active.matches && active.matches('[data-sms-input]')) {
+            state.smsFocus = {
+                file: String(active.getAttribute('data-sms-input') || ''),
                 start: active.selectionStart ?? null,
                 end: active.selectionEnd ?? null,
             };
@@ -1995,6 +2085,15 @@ $isAdmin = tp_is_admin();
                 input.focus({preventScroll: true});
                 if (typeof state.commentFocus.start === 'number' && typeof state.commentFocus.end === 'number') {
                     input.setSelectionRange(state.commentFocus.start, state.commentFocus.end);
+                }
+            }
+        }
+        if (state.smsFocus && state.smsFocus.file) {
+            const input = document.querySelector(`[data-sms-input="${CSS.escape(state.smsFocus.file)}"]`);
+            if (input) {
+                input.focus({preventScroll: true});
+                if (typeof state.smsFocus.start === 'number' && typeof state.smsFocus.end === 'number') {
+                    input.setSelectionRange(state.smsFocus.start, state.smsFocus.end);
                 }
             }
         }
@@ -2099,6 +2198,22 @@ $isAdmin = tp_is_admin();
             </div>`;
     }
 
+    function createSmsEditor(entry) {
+        const file = String(entry.file || '');
+        if (!openSmsFiles.has(file) || !entry.sms_phone_href) return '';
+        const draft = smsDrafts.get(file) || '';
+        const sending = smsSendingFiles.has(file);
+        return `
+            <div class="comment-editor sms-editor">
+                <div class="comment-meta">SMS an Rückrufnummer ${escapeHtml(entry.sms_phone_display || entry.sms_phone_href || '—')}</div>
+                <textarea rows="3" data-sms-input="${escapeHtml(file)}" placeholder="SMS-Text eingeben" ${sending ? 'disabled' : ''}>${escapeHtml(draft)}</textarea>
+                <div class="comment-editor-actions">
+                    <button class="btn btn-primary" type="button" data-send-sms="${escapeHtml(file)}" ${sending ? 'disabled' : ''}>${sending ? 'Sende SMS...' : 'SMS senden'}</button>
+                    <button class="btn" type="button" data-toggle-sms="${escapeHtml(file)}" ${sending ? 'disabled' : ''}>Schließen</button>
+                </div>
+            </div>`;
+    }
+
     function createLeftExtras(entry) {
         const isSummaryOpen = openSummaryFiles.has(String(entry.file || ''));
         const summaryBlock = entry.summary
@@ -2112,7 +2227,8 @@ $isAdmin = tp_is_admin();
             ${summaryBlock}
             <div class="transmitted-row"><strong>Übermittelte Telefonnummer:</strong> ${transmittedNode}</div>
             ${createCommentItems(entry)}
-            ${createCommentEditor(entry)}`;
+            ${createCommentEditor(entry)}
+            ${createSmsEditor(entry)}`;
     }
 
     function createCardActions(entry, area) {
@@ -2125,12 +2241,16 @@ $isAdmin = tp_is_admin();
                 </div>`;
         }
         if (area === 'left') {
+            const smsButton = entry.sms_phone_href
+                ? `<button class="btn" type="button" data-toggle-sms="${file}">SMS</button>`
+                : '';
             return `
                 <div class="actions">
                     <button class="btn btn-primary" data-action="set_status" data-status="abgeschlossen" data-file="${file}">Fertig</button>
                     <button class="btn" data-action="set_status" data-status="neu" data-file="${file}">Zurücksetzen</button>
                     <button class="btn ${entry.urgent ? 'btn-danger' : ''}" data-action="toggle_urgent" data-file="${file}">Dringend</button>
                     <button class="btn" type="button" data-toggle-comment="${file}">Kommentar</button>
+                    ${smsButton}
                     <button class="btn btn-icon" type="button" title="Drucken" data-print-card="${file}">🖨</button>
                     <button class="btn btn-icon" type="button" title="Karte in die Zwischenablage" data-copy-card="${file}">📋</button>
                 </div>`;
@@ -2218,7 +2338,7 @@ $isAdmin = tp_is_admin();
                             <td>${createSelectionControl(area, entry, true)}</td>
                             <td>${escapeHtml(entry.category_label || '—')}</td>
                             <td class="table-patient"><div class="table-name">${name}${birth}</div><div class="table-received">${escapeHtml(entry.received_at_display || '—')}</div></td>
-                            <td><div class="table-preview${area === 'middle' ? ' table-preview-clamped' : ''}" title="${escapeHtml(entry.body || '—')}">${escapeHtml(entry.body || '—')}</div></td>
+                            <td><div class="table-preview${area === 'middle' || area === 'right' ? ' table-preview-clamped' : ''}" title="${escapeHtml(entry.body || '—')}">${escapeHtml(entry.body || '—')}</div></td>
                             ${hasDeletedCol ? `<td class="table-received">${escapeHtml(entry.deleted_at_display || '—')}</td>` : ''}
                             <td>${tableActionButtons(entry, area)}</td>
                         </tr>`;
@@ -2420,6 +2540,49 @@ $isAdmin = tp_is_admin();
             showMessage('Kommentar gespeichert.');
         } catch (error) {
             showMessage(error.message || 'Kommentar konnte nicht gespeichert werden.', true);
+        }
+    }
+
+    async function sendSms(file) {
+        const draft = String(smsDrafts.get(file) || '').trim();
+        if (!draft) {
+            showMessage('SMS-Text fehlt.', true);
+            return;
+        }
+        const workplace = currentWorkplace();
+        if (!workplace) {
+            showMessage('Bitte zuerst einen Platz eintragen.', true);
+            return;
+        }
+
+        const entry = getEntryByFile(file);
+        if (!entry || !entry.sms_phone_href) {
+            showMessage('Keine Rückrufnummer für SMS vorhanden.', true);
+            return;
+        }
+
+        const formData = new FormData();
+        formData.set('csrf', currentCsrf);
+        formData.set('action', 'send_sms');
+        formData.set('file', file);
+        formData.set('workplace', workplace);
+        formData.set('sms_text', draft);
+
+        smsSendingFiles.add(file);
+        render(lastEntries);
+        showMessage('SMS wird gesendet...');
+        try {
+            await apiRequest(formData);
+            smsDrafts.delete(file);
+            openSmsFiles.delete(file);
+            await refresh();
+            showMessage('SMS gesendet und als Kommentar gespeichert.');
+        } catch (error) {
+            showMessage(error.message || 'SMS konnte nicht gesendet werden.', true);
+            render(lastEntries);
+        } finally {
+            smsSendingFiles.delete(file);
+            render(lastEntries);
         }
     }
 
@@ -2665,6 +2828,26 @@ $isAdmin = tp_is_admin();
             if (file) saveComment(file);
             return;
         }
+        const toggleSmsButton = event.target.closest('[data-toggle-sms]');
+        if (toggleSmsButton) {
+            event.preventDefault();
+            const file = String(toggleSmsButton.getAttribute('data-toggle-sms') || '');
+            if (!file || smsSendingFiles.has(file)) return;
+            if (openSmsFiles.has(file)) {
+                openSmsFiles.delete(file);
+            } else {
+                openSmsFiles.add(file);
+            }
+            render(lastEntries);
+            return;
+        }
+        const sendSmsButton = event.target.closest('[data-send-sms]');
+        if (sendSmsButton) {
+            event.preventDefault();
+            const file = String(sendSmsButton.getAttribute('data-send-sms') || '');
+            if (file && !smsSendingFiles.has(file)) sendSms(file);
+            return;
+        }
         const printButton = event.target.closest('[data-print-card]');
         if (printButton) {
             event.preventDefault();
@@ -2699,10 +2882,17 @@ $isAdmin = tp_is_admin();
     });
 
     document.addEventListener('input', event => {
-        const input = event.target.closest('[data-comment-input]');
-        if (!input) return;
-        const file = String(input.getAttribute('data-comment-input') || '');
-        commentDrafts.set(file, input.value || '');
+        const commentInput = event.target.closest('[data-comment-input]');
+        if (commentInput) {
+            const file = String(commentInput.getAttribute('data-comment-input') || '');
+            commentDrafts.set(file, commentInput.value || '');
+            return;
+        }
+        const smsInput = event.target.closest('[data-sms-input]');
+        if (smsInput) {
+            const file = String(smsInput.getAttribute('data-sms-input') || '');
+            smsDrafts.set(file, smsInput.value || '');
+        }
     });
 
     document.addEventListener('toggle', event => {

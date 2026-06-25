@@ -8,7 +8,7 @@ Das System transportiert eingehende JSON-Daten vom Quellsystem zum Zielsystem, o
 
 - Quellsystem: nimmt POST-JSON entgegen, authentifiziert den Request und speichert nur verschluesselte Dateien.
 - Zielsystem: holt `*.enc` per SSH/SCP, entschluesselt lokal, validiert Inhalt und loescht danach lokale und remote verschluesselte Zwischenfiles.
-- Mehrbenutzerbetrieb: Jeder Abrufkanal bekommt einen eigenen SSH-Benutzer auf dem Quellsystem.
+- Mehrbenutzerbetrieb: Jeder Abrufkanal bekommt einen eigenen SSH-Benutzer auf dem Quellsystem und eine eigene Empfangsdatei `telepraxis-receive-<ssh-benutzer>.php`.
 
 ## Schluesselarten
 
@@ -68,19 +68,22 @@ Loesung:
 Quellsystem:
 
 - `quellserver-vorbereiten-nginx-v1.2.sh`
-- `quellserver-benutzer-erzeugen-v1.2.sh`
+- `quellserver-benutzer-erzeugen-v1.8.sh`
 
 Zielsystem:
 
-- `zielserver-vorbereiten-v1.2.sh`
+- `zielserver-vorbereiten-v1.6.sh`
 
 Weitere relevante Dateien:
 
-- `telepraxis-receive.php`
+- `telepraxis-receive.php` als Vorlage
+- `telepraxis-receive-<ssh-benutzer>.php` als installierte Empfangsdatei pro Abrufkanal
+- `kontakt.php` als Vorlage
+- `kontakt-<ssh-benutzer>.php` als installiertes Webformular pro Abrufkanal
 - `telepraxis-app.php`
 - `telepraxis_fetch_and_decrypt.sh`
 
-Die v1.2-Skripte sind der aktuelle Arbeitsstand und sollen als Basis fuer Weiterarbeit gelten.
+Die genannten Skriptversionen sind der aktuelle Arbeitsstand und sollen als Basis fuer Weiterarbeit gelten.
 
 ## Skriptlogik
 
@@ -100,7 +103,7 @@ Wichtig:
 - Stattdessen gezielt `php-fpm`, `php-cli`, `php-curl`, `php-sqlite3`.
 - OpenSSL in PHP pruefen, aber kein separates `php-openssl`-Paket erwarten.
 
-### `quellserver-benutzer-erzeugen-v1.2.sh`
+### `quellserver-benutzer-erzeugen-v1.8.sh`
 
 Richtet pro Abrufkanal einen separaten SSH-Benutzer auf dem Quellsystem ein.
 
@@ -115,13 +118,16 @@ Soll dann:
 
 - Benutzer anlegen,
 - Verzeichnisstruktur anlegen,
+- SSH-Home als `owner=<ssh-benutzer>`, `group=tp-<ssh-benutzer>`, `mode=0710` setzen,
 - `authorized_keys` setzen,
 - PHP-Datei von GitHub bootstrappen,
-- PHP-Zieldatei als `/var/www/html/telepraxis-receive<ssh-benutzer>.php` schreiben,
+- PHP-Zieldatei als `/var/www/html/telepraxis-receive-<ssh-benutzer>.php` schreiben,
 - `$INBOX_DIR`, `$OTP_DB`, `$IONOS_PSK`, `$PUBLIC_KEY_PEM` patchen,
+- Kontaktformular als `/var/www/html/kontakt-<ssh-benutzer>.php` schreiben,
+- im Kontaktformular `$OTP_DB` und den Endpoint `/telepraxis-receive-<ssh-benutzer>.php` patchen,
 - erzeugtes IONOS-Secret am Ende auf der Konsole ausgeben.
 
-### `zielserver-vorbereiten-v1.2.sh`
+### `zielserver-vorbereiten-v1.6.sh`
 
 Richtet das Zielsystem pro Benutzer ein.
 
@@ -134,14 +140,22 @@ Fragt interaktiv ab:
 
 Soll dann:
 
+- auf Debian/Ubuntu gezielt `php-curl` und `php-xml` installieren,
+- PHP-Module `curl`, `dom` und `SimpleXML` pruefen,
 - Benutzer anlegen,
 - SSH-Key erzeugen,
 - RSA-Keypaar fuer JSON-Entschluesselung erzeugen,
-- `telepraxis-app.php` bootstrappen,
+- `telepraxis-app.php` nach `/var/www/html/telepraxis-app.php` bootstrappen,
 - `telepraxis_fetch_and_decrypt.sh` bootstrappen,
 - Fetch-Script patchen,
 - systemd-Dienst einrichten, der unter diesem Benutzer laeuft,
 - SSH-Public-Key und RSA-Public-Key am Ende ausgeben.
+
+Aktuelle Rechteergaenzung ab `zielserver-vorbereiten-v1.4.sh`:
+
+- lokale Benutzerbasis `/srv/telepraxis/<ziel-benutzer>`: `owner=<ziel-benutzer>`, `group=tp-<ziel-benutzer>`, `mode=0710`,
+- lokale Inbox: `2770` mit Gruppe `tp-<ziel-benutzer>`,
+- dadurch kann `www-data` die App-Inbox erreichen, ohne die lokale Benutzerbasis listen oder beschreiben zu duerfen.
 
 ## Pfadlogik
 
@@ -149,8 +163,15 @@ Quellsystem pro Kanal:
 
 - SSH-Home: `/srv/telepraxis/<ssh-benutzer>`
 - Inbox: `/srv/telepraxis/<ssh-benutzer>/inbox`
-- PHP-Datei: `/var/www/html/telepraxis-receive<ssh-benutzer>.php`
+- PHP-Datei: `/var/www/html/telepraxis-receive-<ssh-benutzer>.php`
+- Kontaktformular: `/var/www/html/kontakt-<ssh-benutzer>.php`
 - OTP/State: getrennt vom eigentlichen SSH-Kern
+
+Rechte:
+
+- SSH-Home: `0710`, damit `www-data` ueber die Gruppe `tp-<ssh-benutzer>` nur zur Inbox durchqueren kann.
+- `.ssh`: `0700`, `authorized_keys`: `0600`, jeweils beim SSH-Benutzer.
+- Inbox und State: `2770` mit Gruppe `tp-<ssh-benutzer>`.
 
 Zielsystem pro Zielbenutzer:
 
@@ -160,7 +181,7 @@ Zielsystem pro Zielbenutzer:
 - SSH-Key: `/srv/telepraxis/<ziel-benutzer>/.ssh/telepraxis_fetch_key`
 - RSA-Private-Key: `/srv/telepraxis/<ziel-benutzer>/telepraxis_decrypt_private.pem`
 - RSA-Public-Key: `/srv/telepraxis/<ziel-benutzer>/telepraxis_decrypt_public.pem`
-- Web-App: pro Benutzer getrennt, damit Mehrbenutzerbetrieb sich nicht ueberschreibt
+- Web-App: `/var/www/html/telepraxis-app.php`
 
 ## Bekannte Problemstellen
 

@@ -4,7 +4,7 @@
 
 Dieses Projekt umfasst die Telepraxis-App und einen verschluesselten JSON-Transport zwischen Quellserver und Zielsystem. Eingehende JSON-Daten werden auf dem Quellsystem direkt verschluesselt gespeichert, vom Zielsystem per SSH/SCP abgeholt, lokal entschluesselt, validiert und anschliessend lokal sowie remote bereinigt.
 
-Der aktuelle Architekturstand ist Mehrbenutzerbetrieb: Jeder Abrufkanal bekommt einen eigenen SSH-Benutzer auf dem Quellsystem.
+Der aktuelle Architekturstand ist Mehrbenutzerbetrieb: Jeder Abrufkanal bekommt einen eigenen SSH-Benutzer auf dem Quellsystem und eine eigene Empfangsdatei `telepraxis-receive-<ssh-benutzer>.php`.
 
 ## Arbeitsweise
 
@@ -28,7 +28,7 @@ Der aktuelle Architekturstand ist Mehrbenutzerbetrieb: Jeder Abrufkanal bekommt 
 
 ## API- und Empfangsregeln
 
-- Fuer IONOS und Webformular soll ein zentraler Endpoint `telepraxis-receive.php` verwendet werden; keine separaten Endpunkte oder Symlinks einfuehren, sofern nicht ausdruecklich freigegeben.
+- Fuer IONOS und Webformular wird pro Abrufkanal ein kanalbezogener Endpoint `telepraxis-receive-<ssh-benutzer>.php` verwendet; der Bindestrich vor dem Benutzernamen ist Teil des Namensschemas.
 - Echte PSKs und produktive Secrets nicht in Dokumentation oder neue Quelltexte schreiben; Platzhalter wie `###CHANGE_ME_LONG_RANDOM_SECRET###` verwenden.
 - IONOS-Requests werden per Header `X-TP-Token` authentifiziert und erhalten kein PHP-Rate-Limit.
 - Webformular-Requests verwenden `id == "web-formular"`, OTP und Rate-Limit.
@@ -51,11 +51,14 @@ Der aktuelle Architekturstand ist Mehrbenutzerbetrieb: Jeder Abrufkanal bekommt 
 
 - `README.md`: Projektbeschreibung und Ablauf
 - `telepraxis-app.php`: Web-App fuer eingegangene Vorgaenge
-- `telepraxis-receive.php`: Empfangsmodul fuer JSON-POSTs
+- `telepraxis-receive.php`: Vorlage fuer das Empfangsmodul fuer JSON-POSTs
+- `telepraxis-receive-<ssh-benutzer>.php`: installierte Empfangsdatei pro Abrufkanal auf dem Quellsystem
+- `kontakt.php`: Vorlage fuer das Webformular
+- `kontakt-<ssh-benutzer>.php`: installiertes Webformular pro Abrufkanal auf dem Quellsystem
 - `telepraxis_fetch_and_decrypt.sh`: Abruf und Entschluesselung auf dem Zielsystem
 - `quellserver-vorbereiten-nginx-v1.2.sh`: Quellsystem vorbereiten
-- `quellserver-benutzer-erzeugen-v1.2.sh`: Abrufkanal/SSH-Benutzer auf dem Quellsystem erzeugen
-- `zielserver-vorbereiten-v1.2.sh`: Zielsystem pro Benutzer vorbereiten
+- `quellserver-benutzer-erzeugen-v1.8.sh`: Abrufkanal/SSH-Benutzer auf dem Quellsystem erzeugen
+- `zielserver-vorbereiten-v1.6.sh`: Zielsystem pro Benutzer vorbereiten
 
 ## Regeln fuer `telepraxis-app.php`
 

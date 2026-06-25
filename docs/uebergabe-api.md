@@ -6,13 +6,13 @@ Stand: 2026-06-25
 
 Der IONOS KI-Telefonassistent sendet strukturierte Anliegen per HTTP-POST an einen eigenen PHP-Endpoint. Jede Anfrage wird als einzelne JSON-Datei gespeichert und spaeter von der Telepraxis-App verarbeitet.
 
-Der zentrale Endpoint ist:
+Der kanalbezogene Endpoint hat das Schema:
 
 ```text
-https://###servername###/telepraxis-receive.php
+https://###servername###/telepraxis-receive-###ssh-benutzer###.php
 ```
 
-Es sollen keine separaten PHP-Endpunkte oder Symlinks mehr gepflegt werden.
+Jeder Abrufkanal verwendet eine eigene Empfangsdatei mit Bindestrich vor dem SSH-Benutzernamen. Beispiel fuer den SSH-Benutzer `dahl`: `telepraxis-receive-dahl.php`.
 
 ## Sicherheitsnotiz
 
@@ -29,7 +29,7 @@ Echte Secrets muessen geschuetzt und ausserhalb oeffentlich teilbarer Dokumentat
 Jedes IONOS-Tool sendet JSON per POST an:
 
 ```text
-https://###servername###/telepraxis-receive.php
+https://###servername###/telepraxis-receive-###ssh-benutzer###.php
 ```
 
 Header:
@@ -39,7 +39,7 @@ Content-Type: application/json
 X-TP-Token: ###CHANGE_ME_LONG_RANDOM_SECRET###
 ```
 
-Der PSK muss serverseitig identisch in `telepraxis-receive.php` oder spaeter besser in einer geschuetzten Config/Environment-Quelle hinterlegt sein.
+Der PSK muss serverseitig identisch in der kanalbezogenen Empfangsdatei `telepraxis-receive-<ssh-benutzer>.php` oder spaeter besser in einer geschuetzten Config/Environment-Quelle hinterlegt sein.
 
 IONOS hat offenbar keine dokumentierten automatischen Kontextvariablen fuer Call-ID/Caller-ID. Das Feld `id` muss daher als Tool-Parameter gefuehrt werden.
 
@@ -56,7 +56,7 @@ Aus einer IONOS-Mail mit `id: None` und separater IONOS-interner Mail-ID folgt: 
 Datei:
 
 ```text
-/var/www/html/telepraxis-receive.php
+/var/www/html/telepraxis-receive-<ssh-benutzer>.php
 ```
 
 ### IONOS-Requests
@@ -66,7 +66,7 @@ Datei:
 
 ### Webformular-Requests
 
-`kontakt.php` sendet:
+`kontakt-<ssh-benutzer>.php` sendet:
 
 ```json
 {
@@ -82,14 +82,19 @@ Webformular-Requests benoetigen:
 - Rate-Limit maximal 20 Requests je IP innerhalb von 10 Minuten,
 - bei Ueberschreitung HTTP 429 mit verstaendlicher JSON-Meldung.
 
-Historische einfache Pfade:
+Historische einfache Pfade, nicht mehr Zielmodell:
 
 ```text
 /srv/telepraxis/otp.sqlite
 /srv/telepraxis/inbox
 ```
 
-Im Mehrbenutzerbetrieb muessen OTP/State und Inbox-Pfade mit dem aktuellen Rechte- und Kanalmodell abgeglichen werden.
+Im Mehrbenutzerbetrieb gelten kanalbezogene Pfade:
+
+```text
+/srv/telepraxis/state/<ssh-benutzer>/otp.sqlite
+/srv/telepraxis/<ssh-benutzer>/inbox
+```
 
 PHP SQLite war zunaechst Ursache eines HTTP-500; `php-sqlite3`/PDO SQLite musste installiert werden.
 
@@ -198,7 +203,7 @@ IMMER verwenden wenn ...
 Die IONOS-Tools verwenden:
 
 ```text
-https://###servername###/telepraxis-receive.php
+https://###servername###/telepraxis-receive-###ssh-benutzer###.php
 ```
 
 Header:
@@ -212,7 +217,7 @@ Header:
 Datei:
 
 ```text
-/var/www/html/kontakt.php
+/var/www/html/kontakt-<ssh-benutzer>.php
 ```
 
 Verhalten:
@@ -220,7 +225,7 @@ Verhalten:
 - erzeugt beim Oeffnen ein OTP,
 - OTP ist 24 Stunden gueltig,
 - OTP nur einmal nutzbar,
-- sendet same-origin an `/telepraxis-receive.php`,
+- sendet same-origin an `/telepraxis-receive-<ssh-benutzer>.php`,
 - `id` ist hart codiert als `web-formular`,
 - kein Caller-ID-Feld im Formular,
 - `telefon` ist notwendig.
@@ -256,7 +261,7 @@ Senden NICHT Erfolgreich: Empfang begrenzt auf maximal 20 Nachrichten in 10 Minu
 
 ## Offene Entwicklungsaufgaben
 
-`telepraxis-receive.php` pruefen und gegebenenfalls sauber konsolidieren:
+`telepraxis-receive.php` als Vorlage und die installierten `telepraxis-receive-<ssh-benutzer>.php`-Dateien pruefen und gegebenenfalls sauber konsolidieren:
 
 - IONOS PSK ohne Rate-Limit,
 - Webformular OTP plus 20/10-min Rate-Limit,
@@ -272,7 +277,7 @@ Senden NICHT Erfolgreich: Empfang begrenzt auf maximal 20 Nachrichten in 10 Minu
 
 Spaeteres Ziel:
 
-- Telepraxis-App soll `/srv/telepraxis/inbox/*.json` einlesen.
+- Telepraxis-App soll die kanalbezogene lokale Inbox `/srv/telepraxis/<ziel-benutzer>/inbox/*.json` einlesen.
 - Felder robust darstellen, weil verschiedene `typ` unterschiedliche Feldmengen liefern.
 - Bei aelteren Beispielen kann statt `payload.id` auch `anrufer_id` vorkommen; Parser sollte beides tolerant lesen.
 

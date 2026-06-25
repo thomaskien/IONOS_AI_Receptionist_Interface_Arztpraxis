@@ -1,8 +1,8 @@
 <?php
 // kontakt.php – liefert Formular aus und erzeugt OTP (1 Tag gültig, 1x verwendbar)
-// sendet an /telepraxis-receive.php (gleiches Origin -> kein CORS nötig)
+// sendet an /telepraxis-receive-<ssh-benutzer>.php (gleiches Origin -> kein CORS nötig)
 
-$OTP_DB = '/srv/telepraxis/otp.sqlite';
+$OTP_DB = '/srv/telepraxis/state/###ssh-benutzer###/otp.sqlite';
 
 function ensure_db($path) {
     if (!is_dir(dirname($path))) @mkdir(dirname($path), 0770, true);
@@ -132,7 +132,7 @@ header('Content-Type: text/html; charset=utf-8');
   </div>
 
   <script>
-    const endpoint = "/telepraxis-receive.php";
+    const endpoint = "/telepraxis-receive-###ssh-benutzer###.php";
 
     const out = document.getElementById("out");
     const sendBtn = document.getElementById("sendBtn");

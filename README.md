@@ -34,7 +34,7 @@ Die App lädt die Daten regelmäßig neu und eignet sich damit für den laufende
 - Telefonnummern sind direkt anklickbar
 - Übermittelte Telefonnummer wird zusätzlich angezeigt
 - Lokale Speicherung von Arbeitsplatz, Ton, Sichtbarkeit von Abgeschlossen und Papierkorb
-- **Kontaktformular mit identischem Endpunkt**
+- **Kontaktformular mit kanalbezogenem Endpunkt**
 
 <img src="Screenshot 2026-04-01 at 09-03-13 Telepraxis Kontakt.png" alt="drawing" width="600"/>
 
@@ -72,7 +72,7 @@ Die App unterstützt die aktuell besprochenen Request-Typen des Telefonassistent
 
 
 # sicherheit
-- OTP wird durch kontakt.php generiert und kann nur einmal verwendet werden
+- OTP wird durch `kontakt-<ssh-benutzer>.php` generiert und kann nur einmal verwendet werden
 <pre>
 pt-get update
 apt-get install -y php-sqlite3
@@ -93,20 +93,26 @@ Value: der Wert aus $IONOS_PSK (nachdem du CHANGE_ME... ersetzt hast)
 Das System besteht aus zwei Seiten:
 
 ### 1. Quellserver
-Auf dem Quellserver nimmt `telepraxis-receive-encrypted.php` JSON per HTTP-POST entgegen.  
-Die Daten werden **nicht im Klartext gespeichert**, sondern direkt in PHP mit einem fest eingebetteten **Public Key** verschlüsselt und als Datei im Inbox-Verzeichnis abgelegt.
+Auf dem Quellserver bekommt jeder Abrufkanal einen eigenen SSH-Benutzer und eine eigene Empfangsdatei nach dem Schema `telepraxis-receive-<ssh-benutzer>.php`.
+Diese Datei nimmt JSON per HTTP-POST entgegen.
+Die Daten werden **nicht im Klartext gespeichert**, sondern direkt in PHP mit einem fest eingebetteten **Public Key** verschlüsselt und als Datei im kanalbezogenen Inbox-Verzeichnis abgelegt.
 
 Beispiel:
-- PHP-Datei: `/var/www/html/telepraxis-receive-encrypted.php`
-- Ablage: `/srv/telepraxis/inbox/*.json.enc`
+- SSH-Benutzer: `dahl`
+- PHP-Datei: `/var/www/html/telepraxis-receive-dahl.php`
+- HTTPS-Endpoint: `https://###servername###/telepraxis-receive-dahl.php`
+- Kontaktformular: `/var/www/html/kontakt-dahl.php`
+- Kontakt-URL: `https://###servername###/kontakt-dahl.php`
+- Ablage: `/srv/telepraxis/dahl/inbox/*.json.enc`
+- OTP/State: `/srv/telepraxis/state/dahl/otp.sqlite`
 
 ### 2. Zielsystem
 Das Zielsystem besitzt den zugehörigen **Private Key**.  
 Ein Shell-Script holt die verschlüsselten Dateien regelmäßig per **SCP/SSH** vom Server, entschlüsselt sie lokal und legt daraus wieder normale JSON-Dateien ab.
 
 Beispiel:
-- geholt von: `root@#servername#:/srv/telepraxis/inbox/`
-- lokal entschlüsselt nach: `/Volumes/webroot/inbox/`
+- geholt von: `<ssh-benutzer>@#servername#:/srv/telepraxis/<ssh-benutzer>/inbox/`
+- lokal entschlüsselt nach: `/srv/telepraxis/<ziel-benutzer>/inbox/`
 
 ## Sicherheitskonzept
 
@@ -169,28 +175,20 @@ Das Ziel ist, dass sensible JSON-Daten:
 - **nach erfolgreicher Verarbeitung automatisch entfernt werden**
 
 
-# zertifikate erstellen und fetch einrichten
+# Installer-Ablauf
 
 <pre>
-#server:
-sudo apt install php-openssl
-sudo mkdir -p /srv/telepraxis/inbox
-sudo chown -R www-data:www-data /srv/telepraxis/inbox
-sudo chmod 770 /srv/telepraxis/inbox
-  
-  
-#client:
-sudo openssl genpkey \
-  -algorithm RSA \
-  -pkeyopt rsa_keygen_bits:4096 \
-  -out telepraxis_decrypt_private.pem
-sudo openssl pkey \
-  -in telepraxis_decrypt_private.pem \
-  -pubout \
-  -out telepraxis_decrypt_public.pem
-chmod +x telepraxis_fetch_and_decrypt.sh
-./telepraxis_fetch_and_decrypt.sh
+# Quellserver-Webbasis:
+chmod +x quellserver-vorbereiten-nginx-v1.2.sh
+./quellserver-vorbereiten-nginx-v1.2.sh
 
+# Zielsystem pro Benutzer:
+chmod +x zielserver-vorbereiten-v1.6.sh
+./zielserver-vorbereiten-v1.6.sh
+
+# Quellserver-Abrufkanal pro SSH-Benutzer:
+chmod +x quellserver-benutzer-erzeugen-v1.8.sh
+./quellserver-benutzer-erzeugen-v1.8.sh
 </pre>
 
 
@@ -219,7 +217,7 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   },
   "request": {
     "method": "POST",
-    "url": "https://###servername###/telepraxis-receive.php",
+    "url": "https://###servername###/telepraxis-receive-###ssh-benutzer###.php",
     "headers": [
       { "name": "Content-Type", "value": "application/json" },
       { "name": "X-TP-Token", "value": "###CHANGE_ME_LONG_RANDOM_SECRET###" }
@@ -255,7 +253,7 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   },
   "request": {
     "method": "POST",
-    "url": "https://###servername###/telepraxis-receive.php",
+    "url": "https://###servername###/telepraxis-receive-###ssh-benutzer###.php",
     "headers": [
       { "name": "Content-Type", "value": "application/json" },
       { "name": "X-TP-Token", "value": "###CHANGE_ME_LONG_RANDOM_SECRET###" }
@@ -286,7 +284,7 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   },
   "request": {
     "method": "POST",
-    "url": "https://###servername###/telepraxis-receive.php",
+    "url": "https://###servername###/telepraxis-receive-###ssh-benutzer###.php",
     "headers": [
       { "name": "Content-Type", "value": "application/json" },
       { "name": "X-TP-Token", "value": "###CHANGE_ME_LONG_RANDOM_SECRET###" }
@@ -318,7 +316,7 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   },
   "request": {
     "method": "POST",
-    "url": "https://###servername###/telepraxis-receive.php",
+    "url": "https://###servername###/telepraxis-receive-###ssh-benutzer###.php",
     "headers": [
       { "name": "Content-Type", "value": "application/json" },
       { "name": "X-TP-Token", "value": "###CHANGE_ME_LONG_RANDOM_SECRET###" }
@@ -353,7 +351,7 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   },
   "request": {
     "method": "POST",
-    "url": "https://###servername###/telepraxis-receive.php",
+    "url": "https://###servername###/telepraxis-receive-###ssh-benutzer###.php",
     "headers": [
       { "name": "Content-Type", "value": "application/json" },
       { "name": "X-TP-Token", "value": "###CHANGE_ME_LONG_RANDOM_SECRET###" }
@@ -385,7 +383,7 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   },
   "request": {
     "method": "POST",
-    "url": "https://###servername###/telepraxis-receive.php",
+    "url": "https://###servername###/telepraxis-receive-###ssh-benutzer###.php",
     "headers": [
       { "name": "Content-Type", "value": "application/json" },
       { "name": "X-TP-Token", "value": "###CHANGE_ME_LONG_RANDOM_SECRET###" }
@@ -418,7 +416,7 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   },
   "request": {
     "method": "POST",
-    "url": "https://###servername###/telepraxis-receive.php",
+    "url": "https://###servername###/telepraxis-receive-###ssh-benutzer###.php",
     "headers": [
       { "name": "Content-Type", "value": "application/json" },
       { "name": "X-TP-Token", "value": "###CHANGE_ME_LONG_RANDOM_SECRET###" }
@@ -452,7 +450,7 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   },
   "request": {
     "method": "POST",
-    "url": "https://###servername###/telepraxis-receive.php",
+    "url": "https://###servername###/telepraxis-receive-###ssh-benutzer###.php",
     "headers": [
       { "name": "Content-Type", "value": "application/json" },
       { "name": "X-TP-Token", "value": "###CHANGE_ME_LONG_RANDOM_SECRET###" }
@@ -482,7 +480,7 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   },
   "request": {
     "method": "POST",
-    "url": "https://###servername###/telepraxis-receive.php",
+    "url": "https://###servername###/telepraxis-receive-###ssh-benutzer###.php",
     "headers": [
       { "name": "Content-Type", "value": "application/json" },
       { "name": "X-TP-Token", "value": "###CHANGE_ME_LONG_RANDOM_SECRET###" }
@@ -495,4 +493,3 @@ chmod +x telepraxis_fetch_and_decrypt.sh
   }
 }
 ```
-
