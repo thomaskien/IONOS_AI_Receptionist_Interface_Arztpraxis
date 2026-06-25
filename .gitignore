@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+._*
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.ppk
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+
+# Runtime data
+inbox/
+.encrypted/
+*.json.enc
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs and local tool output
+*.log
+.codex-log/
+.codex/
+
+# Dependency/cache folders if added later
+vendor/
+node_modules/
