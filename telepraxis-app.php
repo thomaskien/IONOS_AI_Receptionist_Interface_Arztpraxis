@@ -1,9 +1,11 @@
 <?php
 /*
  * telepraxis-app.php
- * Version: 3.4
+ * Version: 3.4.1
  *
  * Fortgeführter Changelog (niemals entfernen, nur ergänzen):
+ * - v3.4.1 (2026-06-25)
+ *   - Adminpasswortvergleich toleriert versehentliche Leerzeichen/Zeilenumbrueche aus Installer-Patches.
  * - v3.4 (2026-06-25)
  *   - SMS-Integration für Karten in „In Bearbeitung“ ergänzt: SMS-Button nur bei vorhandener Rückrufnummer, aufklappbares SMS-Feld analog zum Kommentarfeld und Eintrag der versendeten SMS als Kommentar.
  *   - SMS-Versand über separate Funktionsdatei telepraxis-sms.php angebunden, damit die App-Datei schlank bleibt; der Versand läuft per AJAX mit Sendestatus, damit das Interface während der FRITZ!Box-Wartezeit bedienbar bleibt.
@@ -92,7 +94,7 @@ define('TELEPRAXIS_APP', true);
 require_once __DIR__ . '/telepraxis-sms.php';
 
 const TELEPRAXIS_APP_NAME = 'telepraxis-app';
-const TELEPRAXIS_APP_VERSION = '3.4';
+const TELEPRAXIS_APP_VERSION = '3.4.1';
 const TELEPRAXIS_INBOX_DIR = __DIR__ . DIRECTORY_SEPARATOR . 'inbox';
 const TELEPRAXIS_POLL_INTERVAL_MS = 5000;
 const TELEPRAXIS_DEFAULT_TIMEZONE = 'Europe/Berlin';
@@ -120,7 +122,12 @@ function tp_json_response(array $data, int $statusCode = 200): void
 
 function tp_is_admin_enabled(): bool
 {
-    return TELEPRAXIS_ADMIN_PASSWORD !== '';
+    return tp_admin_password_value() !== '';
+}
+
+function tp_admin_password_value(): string
+{
+    return trim((string)TELEPRAXIS_ADMIN_PASSWORD);
 }
 
 function tp_is_admin(): bool
@@ -695,7 +702,7 @@ function tp_handle_api(): void
         if (!tp_is_admin_enabled()) {
             tp_json_response(['ok' => false, 'error' => 'Admin-Zugang ist deaktiviert.'], 403);
         }
-        if (!hash_equals(TELEPRAXIS_ADMIN_PASSWORD, $password)) {
+        if (!hash_equals(tp_admin_password_value(), $password)) {
             tp_json_response(['ok' => false, 'error' => 'Admin-Passwort ist falsch.'], 403);
         }
         $_SESSION['telepraxis_admin'] = true;

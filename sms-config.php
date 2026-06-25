@@ -1,10 +1,11 @@
 <?php
 /*
  * sms-config.php
- * Version: 0.3.0 (2026-06-25)
+ * Version: 0.3.1 (2026-06-25)
  *
  * Changelog:
- * - Adminpasswort-Schutz fuer normal erreichbare Konfigurationsoberflaeche ergaenzt.
+ * - v0.3.1: Adminpasswortvergleich toleriert versehentliche Leerzeichen/Zeilenumbrueche aus Installer-Patches.
+ * - v0.3.0: Adminpasswort-Schutz fuer normal erreichbare Konfigurationsoberflaeche ergaenzt.
  * - Credentials-Pfad auf patchbare absolute Datei ausserhalb des Webroots vorbereitet.
  * - Lokale Client-IP-Sperre standardmaessig deaktiviert; Zugriffsschutz erfolgt ueber Adminpasswort.
  * - Optionales automatisches Loeschen gesendeter FRITZ!Box-SMS nach Versand ergaenzt.
@@ -24,7 +25,7 @@
 
 declare(strict_types=1);
 
-const TP_SMS_VERSION = '0.3.0';
+const TP_SMS_VERSION = '0.3.1';
 const TP_SMS_CREDENTIALS_FILE = 'sms-credentials.json';
 const TP_SMS_CONFIG_ADMIN_PASSWORD = 'bitte-aendern';
 
@@ -287,7 +288,12 @@ function tp_sms_pin_allowed(array $settings): bool
 
 function tp_sms_config_admin_enabled(): bool
 {
-    return trim((string) TP_SMS_CONFIG_ADMIN_PASSWORD) !== '';
+    return tp_sms_config_admin_password_value() !== '';
+}
+
+function tp_sms_config_admin_password_value(): string
+{
+    return trim((string) TP_SMS_CONFIG_ADMIN_PASSWORD);
 }
 
 function tp_sms_config_is_admin(): bool
@@ -1117,7 +1123,7 @@ if (tp_sms_config_admin_enabled()) {
             exit;
         } else {
             $givenPassword = (string) ($_POST['admin_password'] ?? '');
-            if (hash_equals((string) TP_SMS_CONFIG_ADMIN_PASSWORD, $givenPassword)) {
+            if (hash_equals(tp_sms_config_admin_password_value(), $givenPassword)) {
                 $_SESSION['tp_sms_config_admin'] = true;
                 header('Location: ' . tp_sms_config_self_url());
                 exit;
