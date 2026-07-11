@@ -1,6 +1,6 @@
 # Uebergabe API
 
-Stand: 2026-06-25
+Stand: 2026-07-11
 
 ## Ziel
 
@@ -143,6 +143,12 @@ typ, id, telefon, zusammenfassung, vorname, nachname, geburtsdatum, medikamente
 typ, id, telefon, zusammenfassung, vorname, nachname, geburtsdatum, fachrichtung, grund
 ```
 
+`termin`:
+
+```text
+typ, id, telefon, zusammenfassung, vorname, nachname, geburtsdatum, grund
+```
+
 `rueckruf_min`:
 
 ```text
@@ -238,7 +244,7 @@ Auswahl:
 - Termin
 - Sonstiges
 
-Termin wird beim Senden als `typ = sonstiges` und `grund = Terminwunsch` uebermittelt.
+Termin wird beim Senden als `typ = termin` und `grund = Terminwunsch` uebermittelt.
 
 Die Gespraechszusammenfassung ist im Formular verborgen und wird clientseitig aus eingegebenen Feldern gebildet.
 

@@ -1,6 +1,8 @@
 # telepraxis-app
 
-Kompakte Ein-Datei-Webapp zur Bearbeitung eingehender JSON-Vorgänge aus dem Verzeichnis `./inbox`.
+Kompakte Ein(zwei)-Dateien-Webapp zur Bearbeitung eingehender JSON-Vorgänge aus dem Verzeichnis `./inbox`.
+
+Die Haupt-App bleibt `telepraxis-app.php`. Für SMS-Versand wird zusätzlich `telepraxis-sms.php` als separate Funktionsdatei eingebunden; die Konfiguration erfolgt über `sms-config.php`.
 
 <img src="Screenshot 2026-03-31 at 13-40-44 telepraxis-app v2.1.png" alt="drawing" width="1000"/>
 
@@ -33,6 +35,8 @@ Die App lädt die Daten regelmäßig neu und eignet sich damit für den laufende
 - Geöffnete Zusammenfassungen bleiben trotz Refresh erhalten
 - Telefonnummern sind direkt anklickbar
 - Übermittelte Telefonnummer wird zusätzlich angezeigt
+- SMS-Button in **In Bearbeitung**, nur bei vorhandener Rückrufnummer
+- SMS-Versand asynchron über `telepraxis-sms.php`; gesendete SMS werden wie Kommentare im Vorgang eingetragen
 - Lokale Speicherung von Arbeitsplatz, Ton, Sichtbarkeit von Abgeschlossen und Papierkorb
 - **Kontaktformular mit kanalbezogenem Endpunkt**
 
@@ -49,21 +53,25 @@ Die App unterstützt die aktuell besprochenen Request-Typen des Telefonassistent
 - Rezeptbestellung
 - Überweisung
 - Fallback-Typen mit reduzierten Angaben
+- zusätzlicher dringender Fallback `sonstiges_dringend_fehlleitung`
 
 ## Technische Hinweise
 
-- Datei: `telepraxis-app.php`
+- Hauptdatei: `telepraxis-app.php`
+- SMS-Funktionsdatei: `telepraxis-sms.php`
+- SMS-Konfiguration: `sms-config.php`
 - Zeitzone: `Europe/Berlin`
 - Standard-Polling: `5000 ms`
-- Admin-Passwort aktuell fest im PHP-Code definiert und sollte angepasst werden
+- Admin-Passwörter werden vom Zielserver-Installer erzeugt oder manuell gesetzt
+- SMS-Credentials liegen auf dem Zielsystem außerhalb des Webroots unter `/srv/telepraxis/<ziel-benutzer>/config/sms-credentials.json`
 
 ## Kurzablauf
 
-1. `telepraxis-app.php` im Webroot ablegen
+1. `telepraxis-app.php` im Webroot ablegen, bei SMS zusätzlich `telepraxis-sms.php` und `sms-config.php`
 2. Unterhalb davon ein Verzeichnis `inbox` mit den JSON-Dateien bereitstellen
 3. App im Browser öffnen
 4. Arbeitsplatz eintragen
-5. Vorgänge bearbeiten, abschließen oder löschen
+5. Vorgänge bearbeiten, abschließen, löschen oder bei vorhandener Rückrufnummer SMS senden
 
 ## Kommentarfunktion
 
@@ -71,12 +79,15 @@ Die App unterstützt die aktuell besprochenen Request-Typen des Telefonassistent
 
 
 
-# sicherheit
-- OTP wird durch `kontakt-<ssh-benutzer>.php` generiert und kann nur einmal verwendet werden
+## Sicherheit
+
+- OTP wird durch `kontakt-<ssh-benutzer>.php` generiert, ist 24 Stunden gültig und kann nur einmal verwendet werden
+- Webformular-Requests verwenden `id == "web-formular"`, OTP und Rate-Limit
+- Webformular-Rate-Limit: maximal 20 Requests je IP in 10 Minuten
 <pre>
-pt-get update
+apt-get update
 apt-get install -y php-sqlite3
-systemctl restart apache2
+systemctl restart php8.2-fpm  # PHP-Version ggf. anpassen
 </pre>
 - IONOS kontaktiert per
 <pre>
@@ -183,8 +194,8 @@ chmod +x quellserver-vorbereiten-nginx-v1.2.sh
 ./quellserver-vorbereiten-nginx-v1.2.sh
 
 # Zielsystem pro Benutzer:
-chmod +x zielserver-vorbereiten-v1.6.sh
-./zielserver-vorbereiten-v1.6.sh
+chmod +x zielserver-vorbereiten-v1.8.sh
+./zielserver-vorbereiten-v1.8.sh
 
 # Quellserver-Abrufkanal pro SSH-Benutzer:
 chmod +x quellserver-benutzer-erzeugen-v1.8.sh

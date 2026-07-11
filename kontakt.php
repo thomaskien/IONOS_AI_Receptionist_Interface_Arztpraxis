@@ -177,6 +177,7 @@ header('Content-Type: text/html; charset=utf-8');
       if (p.typ === "rezeptbestellung") topic = `Rezeptwunsch: ${p.medikamente || ""}`.trim();
       if (p.typ === "ueb_req") topic = `Überweisung: ${p.fachrichtung || ""}${p.grund ? " ("+p.grund+")" : ""}`.trim();
       if (p.typ === "rueckruf_tel_grund") topic = `Rückrufbitte: ${p.grund || ""}`.trim();
+      if (p.typ === "termin") topic = `Terminwunsch: ${p.grund || ""}`.trim();
       if (p.typ === "sonstiges") {
         if (p.anliegen) topic = `Anliegen: ${p.anliegen}`.trim();
         if (p.grund) topic = `Anliegen: ${p.grund}`.trim();
@@ -207,11 +208,8 @@ header('Content-Type: text/html; charset=utf-8');
       const telefon = el("telefon").value.trim();
       const otp = el("otp").value.trim();
 
-      // Termin -> sonstiges, Termintext in grund
-      const typ = (uiTyp === "termin") ? "sonstiges" : uiTyp;
-
       const payload = {
-        typ,
+        typ: uiTyp,
         id: "web-formular",
         telefon,
         otp,

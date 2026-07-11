@@ -1,9 +1,12 @@
 <?php
 /*
  * telepraxis-app.php
- * Version: 3.4.1
+ * Version: 3.4.2
  *
  * Fortgeführter Changelog (niemals entfernen, nur ergänzen):
+ * - v3.4.2 (2026-07-11)
+ *   - Eigene Kategorie "Termin" ergänzt; Termine werden wie Überweisungen sortiert und zeigen Terminwunsch/Grund als Haupttext.
+ *   - Webformular-Termine werden nun als typ "termin" statt als "sonstiges" verarbeitet.
  * - v3.4.1 (2026-06-25)
  *   - Adminpasswortvergleich toleriert versehentliche Leerzeichen/Zeilenumbrueche aus Installer-Patches.
  * - v3.4 (2026-06-25)
@@ -94,7 +97,7 @@ define('TELEPRAXIS_APP', true);
 require_once __DIR__ . '/telepraxis-sms.php';
 
 const TELEPRAXIS_APP_NAME = 'telepraxis-app';
-const TELEPRAXIS_APP_VERSION = '3.4.1';
+const TELEPRAXIS_APP_VERSION = '3.4.2';
 const TELEPRAXIS_INBOX_DIR = __DIR__ . DIRECTORY_SEPARATOR . 'inbox';
 const TELEPRAXIS_POLL_INTERVAL_MS = 5000;
 const TELEPRAXIS_DEFAULT_TIMEZONE = 'Europe/Berlin';
@@ -341,6 +344,9 @@ function tp_entry_category_key(array $entry): string
     if ($typ === 'ueb_req' || strpos($typ, 'ueberweisung') !== false || strpos($typ, 'überweisung') !== false) {
         return 'ueberweisung';
     }
+    if ($typ === 'termin') {
+        return 'termin';
+    }
     if ($typ === 'sonstiges') {
         return 'sonstiges';
     }
@@ -354,6 +360,8 @@ function tp_category_label(string $key): string
             return 'Rezept';
         case 'ueberweisung':
             return 'Überweisung';
+        case 'termin':
+            return 'Termin';
         case 'sonstiges':
             return 'Sonstiges';
         default:
@@ -368,6 +376,7 @@ function tp_category_order(string $key): int
         case 'sonstiges':
             return 0;
         case 'ueberweisung':
+        case 'termin':
             return 1;
         case 'rezept':
             return 2;
@@ -451,6 +460,10 @@ function tp_build_main_text(array $entry): string
             return implode(' – ', $parts);
         }
         return $summary !== '' ? $summary : '—';
+    }
+
+    if ($typ === 'termin') {
+        return $grund !== '' ? $grund : ($anliegen !== '' ? $anliegen : ($summary !== '' ? $summary : '—'));
     }
 
     if (in_array($typ, ['rueckruf_tel_grund', 'rueckruf_details', 'fallback_name_tel_grund', 'fallback_vn_nn_grund'], true)) {
