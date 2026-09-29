@@ -6,6 +6,8 @@ Etappe. Empfang, Installation, Vorgangszuordnung und SMS-Ton wurden anschließen
 fertiggestellt; der Nutzer hat inzwischen auch die GitHub-Veröffentlichung
 beauftragt. Den aktuellen Stand und die späteren Prüfungen beschreibt
 [SMS-UEBERGABE-2026-09-29.md](SMS-UEBERGABE-2026-09-29.md).
+Die fertiggestellte SMS-Erweiterung ist auf Nutzerwunsch als App-Version 3.5
+freigegeben; die Versionsangaben unten beschreiben die historische Übernahme.
 
 ## Ergebnis
 

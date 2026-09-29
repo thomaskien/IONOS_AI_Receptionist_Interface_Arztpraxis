@@ -2,7 +2,11 @@
 
 Kompakte Ein(zwei)-Dateien-Webapp zur Bearbeitung eingehender JSON-Vorgänge aus dem Verzeichnis `./inbox`.
 
-Die **kienzlefon app** hieß bisher **telepraxis-app**. Die Umbenennung ändert die Version nicht: Sie bleibt bei **3.4.2**. Dateinamen, technische Bezeichner und Pfade bleiben vorerst unverändert; die bisherigen Screenshots zeigen noch den alten Namen.
+Die **kienzlefon app** hieß bisher **telepraxis-app**. Die aktuelle Version **3.5**
+vom 29.09.2026 umfasst die neue SMS-Queue, den Empfang, weitere SMS als farbige
+Kommentare, die einmalige Bestätigung und den Benachrichtigungston. Dateinamen,
+technische Bezeichner und Pfade bleiben unverändert; die bisherigen Screenshots
+zeigen noch ältere Versionen und den alten Namen.
 
 Die Haupt-App bleibt `telepraxis-app.php`. Für SMS-Versand wird zusätzlich `telepraxis-sms.php` als separate Funktionsdatei eingebunden; die Konfiguration erfolgt über `sms-config.php`.
 

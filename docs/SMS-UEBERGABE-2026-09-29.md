@@ -1,6 +1,10 @@
 # Übergabe: SMS-Weiterentwicklung im Projekt ionos
 
 Stand: 29.09.2026. Diese Datei ist der Einstieg für die Fortsetzung der SMS-Arbeit.
+Aktuelle freigegebene App-Version: **3.5** mit der vollständigen SMS-Erweiterung.
+Die Versionsanpassung ist auf dem Zielsystem installiert; Kopfzeile und
+Browsertitel verwenden 3.5. PHP-/JavaScript-Prüfung und alle 18 App-Tests
+bestanden. Der vollständige Funktionsstand wurde zuvor mit 170 Tests geprüft.
 
 ## Arbeitsort und maßgebliche Version
 
@@ -19,10 +23,12 @@ später gezielt in die Demo übernehmen. Niemals die reguläre App durch
 `kienzlefon/demo-webseite/telepraxis-app-demo.php` ersetzen: Die Demo hat ein
 anderes Löschverhalten, die reguläre App muss ihren Papierkorb behalten.
 
-Vor Änderungen `AGENTS.md` und `git status` lesen. Der Arbeitsbaum enthält sowohl
-die SMS-Integration als auch vorherige lokale Änderungen an Produktbezeichnungen
-und Dokumentation. Nichts pauschal zurücksetzen oder überschreiben. Keine neuen
-Versionsnummern ohne gesonderte Freigabe; datierte Changelog-Einträge erhalten.
+Vor Änderungen `AGENTS.md` und `git status` lesen. Die SMS-Integration,
+Produktbezeichnungen, Dokumentation und der App-Updater wurden mit Commit
+`a9b240f` auf GitHub veröffentlicht. Anschließend hat der Nutzer ausdrücklich
+die neue App-Version **3.5** angefordert. Nichts pauschal zurücksetzen oder
+überschreiben; den vollständigen Changelog einschließlich der historischen
+Einträge für 3.4.2 erhalten. Weitere Versionssprünge benötigen eine neue Freigabe.
 
 ## Nutzerauftrag und Entscheidungen
 
@@ -393,12 +399,17 @@ Die Ergebnisse wurden gezielt in den Hauptarbeitsbaum übernommen; die beiden
 abgeschlossenen Worker-Worktrees anschließend erfolgreich archiviert.
 
 Bestehende Änderungen einschließlich der App-Update-Dateien wurden erhalten
-und vor der beauftragten Veröffentlichung geprüft. Es erfolgte kein neuer
-Versionssprung. Worker-Installation und nachfolgende Webupdates sind oben dokumentiert.
+und vor der beauftragten Veröffentlichung geprüft. Nach der ersten Veröffentlichung
+hat der Nutzer den Versionssprung auf **3.5** ausdrücklich freigegeben. Der
+Versionsheader, die zentrale App-Konstante, der Changelog und die aktuellen
+Dokumentationen wurden entsprechend angepasst. Worker-Installation und
+nachfolgende Webupdates sind oben dokumentiert.
 
 ## Startnachricht für den nächsten Chat im Projekt ionos
 
 > Bitte lies AGENTS.md, docs/SMS-UEBERGABE-2026-09-29.md und docs/SMS-EMPFANG.md.
+> Aktuelle freigegebene App-Version ist 3.5; die Versionsanpassung wurde vom Nutzer
+> ausdrücklich für die fertige SMS-Erweiterung angefordert.
 > SMS-Worker und Queue-Webstand sind installiert. Queue ist Standard, der Dienst
 > läuft unter systemd mit Autostart und aktiviertem Empfang. Der Nutzer hat den
 > Empfang freigegeben, aber automatische Antworten an Kurzwahlen/Netzbetreiber-

@@ -1,9 +1,13 @@
 <?php
 /*
  * telepraxis-app.php
- * Version: 3.4.2
+ * Version: 3.5
  *
  * Fortgeführter Changelog (niemals entfernen, nur ergänzen):
+ * - v3.5 (2026-09-29)
+ *   - SMS-Funktionen als neue App-Version freigegeben: persistente Versandqueue, eigenständiger Empfangsworker und sichere Routerbereinigung.
+ *   - Weitere SMS zum zuletzt angelegten offenen Vorgang als farbige chronologische Kommentare mit Benachrichtigungston; automatische Bestätigung nur für die erste SMS je Vorgang und nur an vollständige deutsche Rufnummern.
+ *   - Gemeinsame Inbox-Sperre und atomare Dateischreibvorgänge für App und Worker; bestehende Vorgänge, Kommentare und Papierkorb bleiben erhalten.
  * - 2026-09-29 (Version unverändert: 3.4.2)
  *   - Benachrichtigungston auch für neue SMS-Kommentare in bestehenden Vorgängen; bekannte SMS lösen beim Polling keinen weiteren Ton aus.
  * - 2026-09-29 (Version unverändert: 3.4.2)
@@ -105,7 +109,7 @@ define('TELEPRAXIS_APP', true);
 require_once __DIR__ . '/telepraxis-sms.php';
 
 const TELEPRAXIS_APP_NAME = 'kienzlefon app';
-const TELEPRAXIS_APP_VERSION = '3.4.2';
+const TELEPRAXIS_APP_VERSION = '3.5';
 const TELEPRAXIS_INBOX_DIR = __DIR__ . DIRECTORY_SEPARATOR . 'inbox';
 const TELEPRAXIS_POLL_INTERVAL_MS = 5000;
 const TELEPRAXIS_DEFAULT_TIMEZONE = 'Europe/Berlin';

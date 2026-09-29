@@ -14,8 +14,10 @@ Die beiden App-Dateien dürfen nicht gegenseitig vollständig ersetzt werden.
 
 Ausgangspunkt in `ionos`: Commit `4c8c665` einschließlich der bereits lokal
 vorliegenden Änderungen vom 29.09.2026, insbesondere der sichtbaren Bezeichnung
-„kienzlefon app“. Die reguläre App behält Version 3.4.2 und ihren vollständigen
-Changelog. Der datierte SMS-Eintrag dokumentiert die Änderung ohne neue Release-Freigabe.
+„kienzlefon app“. Die erste Übernahme erfolgte noch unter Version 3.4.2.
+Der Nutzer hat die fertigen SMS-Funktionen anschließend ausdrücklich als
+**Version 3.5** freigegeben. Der vollständige bisherige Changelog bleibt erhalten
+und wird durch den Eintrag für v3.5 vom 29.09.2026 ergänzt.
 
 | Aus `kienzlefon` | Maßgebliche Datei in `ionos` |
 | --- | --- |
