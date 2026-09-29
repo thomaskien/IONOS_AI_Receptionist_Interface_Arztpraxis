@@ -5,6 +5,10 @@
 # von Dr. Thomas Kienzle / ChatGPT
 #
 # Changelog
+# 2026-09-29 (Version unveraendert: v1.8)
+# - SMS-Queue-Bibliothek und PDO-SQLite fuer die optionale Queue-Anbindung bereitstellen; Worker bleibt separat einzurichten
+# 2026-09-29 (Version unveraendert: v1.8)
+# - verwendet den Produktnamen "kienzlefon app" in den Webinterface-Dialogen
 # v1.8
 # - behebt die Adminpasswort-Erzeugung: keine unsichtbaren Zeilenumbrueche mehr im gepatchten Passwort
 # - generiert sechsstellige, gut lesbare Adminpasswoerter ohne mehrdeutige Zeichen
@@ -54,6 +58,7 @@ set -euo pipefail
 
 APP_URL="https://raw.githubusercontent.com/thomaskien/IONOS_AI_Receptionist_Interface_Arztpraxis/refs/heads/main/telepraxis-app.php"
 SMS_LIB_URL="https://raw.githubusercontent.com/thomaskien/IONOS_AI_Receptionist_Interface_Arztpraxis/refs/heads/main/telepraxis-sms.php"
+SMS_QUEUE_URL="https://raw.githubusercontent.com/thomaskien/IONOS_AI_Receptionist_Interface_Arztpraxis/refs/heads/main/telepraxis-sms-queue.php"
 SMS_CONFIG_URL="https://raw.githubusercontent.com/thomaskien/IONOS_AI_Receptionist_Interface_Arztpraxis/refs/heads/main/sms-config.php"
 FETCH_URL="https://raw.githubusercontent.com/thomaskien/IONOS_AI_Receptionist_Interface_Arztpraxis/refs/heads/main/telepraxis_fetch_and_decrypt.sh"
 
@@ -79,13 +84,17 @@ install_php_extension_packages() {
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y php-curl php-xml
+    apt-get install -y php-curl php-xml php-sqlite3
   else
-    echo "Hinweis: apt-get nicht gefunden. Bitte php-curl und php-xml manuell installieren."
+    echo "Hinweis: apt-get nicht gefunden. Bitte php-curl, php-xml und php-sqlite3 manuell installieren."
   fi
 }
 
 verify_php_extensions() {
+  php -m | grep -iq '^pdo_sqlite$' || {
+    echo "PHP-PDO-SQLite-Unterstuetzung fehlt. Bitte php-sqlite3 installieren."
+    exit 1
+  }
   php -m | grep -iq '^curl$' || {
     echo "PHP-cURL-Unterstuetzung fehlt. Bitte php-curl installieren."
     exit 1
@@ -463,7 +472,7 @@ show_summary() {
   echo
   echo "Adminpasswoerter:"
   echo "----------------------------------------------------------------"
-  echo "Telepraxis-Webinterface: $app_admin_password"
+  echo "kienzlefon app: $app_admin_password"
   echo "sms-config.php:          $sms_config_password"
   echo "----------------------------------------------------------------"
   echo
@@ -516,6 +525,7 @@ main() {
   local fetch_script=""
   local app_target=""
   local sms_lib_target=""
+  local sms_queue_target=""
   local sms_config_target=""
   local service_name=""
   local service_file=""
@@ -528,7 +538,7 @@ main() {
   source_host="$(ask_default 'Quellserver Hostname/FQDN' 'kontakt.praxispi.de')"
   source_user="$(ask_default 'SSH-Benutzer auf dem Quellsystem' "$target_user")"
   source_port="$(ask_default 'SSH-Port auf dem Quellsystem' '22')"
-  ask_password_or_generate app_admin_password 'Supervisor/Adminpasswort fuer das Telepraxis-Webinterface'
+  ask_password_or_generate app_admin_password 'Supervisor/Adminpasswort fuer die kienzlefon app'
   ask_password_or_generate sms_config_password 'Adminpasswort fuer sms-config.php'
 
   base_dir="${BASE_ROOT}/${target_user}"
@@ -543,6 +553,7 @@ main() {
   fetch_script="/usr/local/bin/telepraxis_fetch_and_decrypt_${target_user}.sh"
   app_target="${WEBROOT_DIR}/telepraxis-app.php"
   sms_lib_target="${WEBROOT_DIR}/telepraxis-sms.php"
+  sms_queue_target="${WEBROOT_DIR}/telepraxis-sms-queue.php"
   sms_config_target="${WEBROOT_DIR}/sms-config.php"
   service_name="telepraxis-fetch-and-decrypt-${target_user}.service"
   service_file="/etc/systemd/system/${service_name}"
@@ -565,6 +576,11 @@ main() {
   backup_if_exists "$sms_lib_target"
   fetch_url_to_file "$SMS_LIB_URL" "$sms_lib_target"
   chmod 0644 "$sms_lib_target"
+
+  backup_if_exists "$sms_queue_target"
+  fetch_url_to_file "$SMS_QUEUE_URL" "$sms_queue_target"
+  chmod 0644 "$sms_queue_target"
+  php -l "$sms_queue_target" >/dev/null
 
   backup_if_exists "$sms_config_target"
   fetch_url_to_file "$SMS_CONFIG_URL" "$sms_config_target"

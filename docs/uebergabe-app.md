@@ -2,6 +2,13 @@
 
 Stand: 2026-06-25
 
+Aktualisierung vom 29.09.2026: Produktname kienzlefon app, weiterhin Version
+3.4.2. SMS-Queue, Empfang, farbige Folge-SMS im chronologischen Kommentarverlauf,
+einmalige Bestätigung und Ton sind integriert. Die gemeinsame Inbox-Sperre
+koordiniert App und Worker. Der aktuelle SMS- und Installationsstand steht in
+[SMS-UEBERGABE-2026-09-29.md](SMS-UEBERGABE-2026-09-29.md); die folgenden
+Grundfunktionen und Arbeitsregeln bleiben erhalten.
+
 ## Grundregel
 
 Fuer die Weiterarbeit an `telepraxis-app.php` gilt ausdruecklich: immer Rueckfrage statt Improvisation.
@@ -33,7 +40,7 @@ Vor Ausgabe pruefen:
 
 ## Projektkontext
 
-`telepraxis-app.php` ist eine Ein-Datei-Webapp in PHP.
+Die kienzlefon app (bisher telepraxis-app) ist eine Ein-Datei-Webapp in PHP. Der Dateiname bleibt `telepraxis-app.php`; die Produktumbenennung aendert die Version 3.4.2 nicht.
 
 - Datenbasis: JSON-Dateien aus `./inbox`
 - Statussystem: Neu, In Bearbeitung, Abgeschlossen, Papierkorb/Soft-Delete
@@ -109,7 +116,7 @@ Kopfzeile:
 
 Typografie Kopfzeile:
 
-- Nur `telepraxis-app` hervorgehoben/fett
+- Nur `kienzlefon app` hervorgehoben/fett
 - Version und `von Dr. Thomas Kienzle` dezenter und nicht fett
 
 Platz-Placeholder:

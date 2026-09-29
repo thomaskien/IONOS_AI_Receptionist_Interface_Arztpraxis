@@ -1,9 +1,14 @@
 <?php
 /*
  * telepraxis-sms.php
- * Version: 0.2.0 (2026-06-25)
+ * Version: 0.3.3 (2026-09-29)
  *
  * Changelog:
+ * - FRITZ!Box-Journal-ID vor Versand sichern und getrennte Loeschsession ermoeglichen.
+ * - Automatische Antwort als ersetzbare Nachrichtenliste mit zwei Standard-SMS vorbereitet.
+ * - FRITZ!Box-Texte vor Versand und Queue-Aufnahme auf 70 UTF-16-Zeichen begrenzt.
+ * - Queue als dritten Versandweg mit dauerhaftem Auftrag und separatem CLI-Worker ergaenzt.
+ * - TOTP-Freigabe abwarten, Bestaetigungsfelder korrigieren und 2FA-Sperren erklaeren.
  * - Credentials-Pfad auf patchbare absolute Datei ausserhalb des Webroots vorbereitet.
  * - SMS-Funktionsdatei fuer telepraxis-app.php erstellt.
  * - Provider none, seven.io und FRITZ!Box aus sms.php ohne Testoberflaeche uebernommen.
@@ -36,6 +41,18 @@ function tp_sms_default_settings(): array
         'sms' => [
             'max_text_length' => 612,
         ],
+        'auto_reply' => [
+            'messages' => [
+                '1/2 SMS an die Praxis weitergeleitet. Testbetrieb! Vielen Dank!',
+                '2/2 Fehlen persönliche Daten, bitte eine neue vollständige SMS senden.',
+            ],
+        ],
+        'queue' => [
+            'database_path' => '',
+            'delivery_provider' => 'fritz',
+            'poll_interval_seconds' => 2,
+            'busy_timeout_ms' => 1000,
+        ],
         'seven' => [
             'api_key' => '',
             'from' => 'Telepraxis',
@@ -59,13 +76,35 @@ function tp_sms_default_settings(): array
 function tp_sms_merge_settings(array $base, array $override): array
 {
     foreach ($override as $key => $value) {
-        if (is_array($value) && isset($base[$key]) && is_array($base[$key])) {
+        if (is_array($value) && isset($base[$key]) && is_array($base[$key])
+            && !array_is_list($value) && !array_is_list($base[$key])) {
             $base[$key] = tp_sms_merge_settings($base[$key], $value);
             continue;
         }
         $base[$key] = $value;
     }
     return $base;
+}
+
+/** Konfigurierte Einzel-SMS in Versandfolge; [] deaktiviert die automatische Antwort. */
+function tp_sms_auto_reply_messages(array $settings): array
+{
+    $config = array_key_exists('auto_reply', $settings)
+        ? $settings['auto_reply'] : tp_sms_default_settings()['auto_reply'];
+    if (!is_array($config)) {
+        throw new RuntimeException('auto_reply muss ein Konfigurationsobjekt sein.');
+    }
+    $messages = array_key_exists('messages', $config)
+        ? $config['messages'] : tp_sms_default_settings()['auto_reply']['messages'];
+    if (!is_array($messages) || !array_is_list($messages)) {
+        throw new RuntimeException('auto_reply.messages muss eine Liste von SMS-Texten sein.');
+    }
+    foreach ($messages as $message) {
+        if (!is_string($message) || trim($message) === '') {
+            throw new RuntimeException('auto_reply.messages darf nur nichtleere SMS-Texte enthalten.');
+        }
+    }
+    return $messages;
 }
 
 function tp_sms_load_settings(): array
@@ -109,12 +148,16 @@ function tp_sms_text_length(string $text): int
     if (function_exists('mb_strlen')) {
         return (int)mb_strlen($text, 'UTF-8');
     }
-    return strlen($text);
+    $length = preg_match_all('/./us', $text);
+    if ($length === false) {
+        throw new RuntimeException('SMS-Text ist kein gueltiges UTF-8.');
+    }
+    return $length;
 }
 
 function tp_sms_provider_from_value(string $provider): string
 {
-    return in_array($provider, ['none', 'seven', 'fritz'], true) ? $provider : 'none';
+    return in_array($provider, ['none', 'seven', 'fritz', 'queue'], true) ? $provider : 'none';
 }
 
 function tp_sms_build_url(string $url, array $params): string
@@ -427,6 +470,60 @@ function tp_sms_totp_now(string $secret, int $digits = 6, int $period = 30): str
     return str_pad((string)($code % $modulo), $digits, '0', STR_PAD_LEFT);
 }
 
+function tp_sms_fritz_check_twofactor_error(array $response): void
+{
+    $state = (string)($response['data']['twofactor'] ?? '');
+    $parts = explode(';', $state, 2);
+    if (!in_array('starterror', explode(',', $parts[0]), true)) {
+        return;
+    }
+    if (($parts[1] ?? '') === '92') {
+        throw new RuntimeException('FRITZ!Box-Bestaetigung ist nach drei abgebrochenen oder erfolglosen Versuchen fuer 60 Minuten gesperrt (Fehler 92). Bitte die Sperrzeit abwarten und bis dahin keine weiteren Sendeversuche starten.');
+    }
+    if (($parts[1] ?? '') === '91') {
+        throw new RuntimeException('FRITZ!Box-Bestaetigung ist bereits in einer anderen Sitzung aktiv (Fehler 91). Bitte zwei Minuten warten.');
+    }
+    throw new RuntimeException('FRITZ!Box konnte die zusaetzliche Bestaetigung nicht starten. Bitte den Status in der FRITZ!Box-Oberflaeche pruefen.');
+}
+
+function tp_sms_fritz_wait_totp(array $config, string &$sid): void
+{
+    // Der angenommene Code allein ist noch keine Freigabe. Wie die FRITZ!Box-UI
+    // erst bei done && active fortfahren, niemals einen Sendeversuch wiederholen.
+    $deadline = microtime(true) + min(10, max(1, (int)($config['timeout_seconds'] ?? 20)));
+    do {
+        $remaining = $deadline - microtime(true);
+        if ($remaining <= 0) {
+            break;
+        }
+        $pollConfig = $config;
+        $pollConfig['timeout_seconds'] = max(1, (int)ceil($remaining));
+        $active = tp_sms_fritz_request($pollConfig, 'twofactor.lua', [
+            'sid' => $sid,
+            'tfa_active' => '',
+            'no_sidrenew' => '',
+        ], 'FRITZ!Box-TOTP-Status nach Code');
+        $sid = tp_sms_fritz_update_sid($sid, $active);
+        foreach (['done', 'active'] as $field) {
+            if (!array_key_exists($field, $active)
+                || !in_array($active[$field], [true, false, 1, 0, '1', '0', 'true', 'false'], true)) {
+                throw new RuntimeException('FRITZ!Box liefert keinen gueltigen TOTP-Bestaetigungsstatus. SMS-Versand wurde nicht abgeschlossen.');
+            }
+        }
+        if (tp_sms_boolish($active['done'])) {
+            if (!tp_sms_boolish($active['active'])) {
+                throw new RuntimeException('FRITZ!Box-TOTP-Bestaetigung ist fehlgeschlagen oder abgelaufen. SMS-Versand wurde nicht abgeschlossen.');
+            }
+            return;
+        }
+        if (microtime(true) < $deadline) {
+            usleep(250000);
+        }
+    } while (microtime(true) < $deadline);
+
+    throw new RuntimeException('FRITZ!Box-TOTP-Bestaetigung wurde nicht rechtzeitig freigegeben. SMS-Versand wurde nicht abgeschlossen.');
+}
+
 function tp_sms_fritz_confirm_totp(array $config, string &$sid, string $recipient, string $message, string $newUid): void
 {
     $info = tp_sms_fritz_request($config, 'twofactor.lua', [
@@ -434,6 +531,7 @@ function tp_sms_fritz_confirm_totp(array $config, string &$sid, string $recipien
         'tfa_googleauth_info' => '',
         'no_sidrenew' => '',
     ], 'FRITZ!Box-TOTP-Status');
+    $sid = tp_sms_fritz_update_sid($sid, $info);
 
     $googleAuth = $info['googleauth'] ?? [];
     if (!is_array($googleAuth) || !tp_sms_boolish($googleAuth['isConfigured'] ?? false)) {
@@ -451,20 +549,11 @@ function tp_sms_fritz_confirm_totp(array $config, string &$sid, string $recipien
         'no_sidrenew' => '',
     ], 'FRITZ!Box-TOTP-Bestaetigung');
 
-    if ((int)($totpResult['err'] ?? 1) !== 0) {
-        throw new RuntimeException('FRITZ!Box-TOTP wurde nicht akzeptiert.');
-    }
     $sid = tp_sms_fritz_update_sid($sid, $totpResult);
-
-    try {
-        $active = tp_sms_fritz_request($config, 'twofactor.lua', [
-            'sid' => $sid,
-            'tfa_active' => '',
-            'no_sidrenew' => '',
-        ], 'FRITZ!Box-TOTP-Status nach Code');
-        $sid = tp_sms_fritz_update_sid($sid, $active);
-    } catch (Throwable $ignored) {
+    if (!in_array($totpResult['err'] ?? null, [0, '0'], true)) {
+        throw new RuntimeException('FRITZ!Box-TOTP wurde nicht akzeptiert. Bitte TOTP-Secret sowie Uhrzeit von Server und FRITZ!Box pruefen.');
     }
+    tp_sms_fritz_wait_totp($config, $sid);
 
     $final = tp_sms_fritz_request($config, 'data.lua', [
         'sid' => $sid,
@@ -472,12 +561,13 @@ function tp_sms_fritz_confirm_totp(array $config, string &$sid, string $recipien
         'recipient' => $recipient,
         'newMessage' => $message,
         'new_uid' => $newUid,
-        'second_apply' => '1',
-        'confirmed' => '1',
-        'twofactor' => '1',
+        'second_apply' => '',
+        'confirmed' => '',
+        'twofactor' => '',
     ], 'FRITZ!Box-SMS-Abschluss');
 
     $sid = tp_sms_fritz_update_sid($sid, $final);
+    tp_sms_fritz_check_twofactor_error($final);
     if (($final['data']['second_apply'] ?? '') !== 'ok') {
         throw new RuntimeException('FRITZ!Box-SMS wurde nach TOTP nicht bestaetigt. Antwort: ' . tp_sms_safe_debug_json($final));
     }
@@ -499,7 +589,7 @@ function tp_sms_fritz_delete_sms(array $config, string &$sid, string $messageId)
 
     $sid = tp_sms_fritz_update_sid($sid, $delete);
     if (($delete['data']['delete'] ?? '') !== 'ok') {
-        throw new RuntimeException('FRITZ!Box-SMS wurde versendet, konnte aber nicht geloescht werden. Antwort: ' . tp_sms_safe_debug_json($delete));
+        throw new RuntimeException('FRITZ!Box-SMS konnte nicht geloescht werden. Antwort: ' . tp_sms_safe_debug_json($delete));
     }
 
     return [
@@ -508,8 +598,42 @@ function tp_sms_fritz_delete_sms(array $config, string &$sid, string $messageId)
     ];
 }
 
-function tp_sms_send_fritz(array $settings, string $recipient, string $message): array
+/** Delete a known journal entry without making another send request. */
+function tp_sms_fritz_delete_message(array $settings, string $messageId): array
 {
+    if (trim($messageId) === '') {
+        throw new RuntimeException('FRITZ!Box-SMS kann nicht geloescht werden: messageId fehlt.');
+    }
+    $config = $settings['fritzbox'] ?? null;
+    if (!is_array($config)) {
+        throw new RuntimeException('FRITZ!Box-Konfiguration fehlt.');
+    }
+    $sid = '';
+    $cookieFile = tempnam(sys_get_temp_dir(), 'tp-sms-fritz-');
+    if ($cookieFile === false) {
+        throw new RuntimeException('Temporaere FRITZ!Box-Session konnte nicht angelegt werden.');
+    }
+    @chmod($cookieFile, 0600);
+    $config['_cookie_file'] = $cookieFile;
+    try {
+        $sid = tp_sms_fritz_login($config);
+        return tp_sms_fritz_delete_sms($config, $sid, $messageId);
+    } finally {
+        tp_sms_fritz_logout($config, $sid);
+        @unlink($cookieFile);
+    }
+}
+
+function tp_sms_validate_provider_text(string $provider, string $message): void
+{
+    if ($provider === 'fritz' && strlen(tp_sms_utf16le($message)) > 140) {
+        throw new RuntimeException('FRITZ!Box unterstützt maximal 70 Zeichen pro SMS. Bitte den Text kürzen.');
+    }
+}
+
+function tp_sms_send_fritz(array $settings, string $recipient, string $message, ?callable $onMessageCreated = null): array
+{
+    tp_sms_validate_provider_text('fritz', $message);
     $config = $settings['fritzbox'] ?? [];
     if (!is_array($config)) {
         throw new RuntimeException('FRITZ!Box-Konfiguration fehlt.');
@@ -535,7 +659,14 @@ function tp_sms_send_fritz(array $settings, string $recipient, string $message):
         ], 'FRITZ!Box-SMS-Start');
 
         $sid = tp_sms_fritz_update_sid($sid, $initial);
-        $newUid = (string)($initial['data']['new_uid'] ?? '');
+        $newUid = $initial['data']['new_uid'] ?? '';
+        $newUid = is_string($newUid) ? trim($newUid) : '';
+        // Persist the journal ID before the final send: a crash or ambiguous
+        // response must not prevent cleanup or cause another send attempt.
+        if ($newUid !== '' && $onMessageCreated !== null) {
+            $onMessageCreated($newUid);
+        }
+        tp_sms_fritz_check_twofactor_error($initial);
         if ($newUid === '') {
             return [
                 'ok' => true,
@@ -562,11 +693,15 @@ function tp_sms_send_fritz(array $settings, string $recipient, string $message):
         ], 'FRITZ!Box-SMS-2FA-Anforderung');
 
         $sid = tp_sms_fritz_update_sid($sid, $second);
-        if (($second['data']['second_apply'] ?? '') !== 'twofactor') {
+        tp_sms_fritz_check_twofactor_error($second);
+        $secondApply = $second['data']['second_apply'] ?? '';
+        $usedTwofactor = $secondApply === 'twofactor';
+        if ($usedTwofactor) {
+            tp_sms_fritz_confirm_totp($config, $sid, $recipient, $message, $newUid);
+        } elseif ($secondApply !== 'ok') {
             throw new RuntimeException('FRITZ!Box hat keine erwartete TOTP-Anforderung geliefert.');
         }
 
-        tp_sms_fritz_confirm_totp($config, $sid, $recipient, $message, $newUid);
         $deleteInfo = [
             'deleted' => false,
             'reason' => 'delete_after_send ist deaktiviert.',
@@ -582,7 +717,7 @@ function tp_sms_send_fritz(array $settings, string $recipient, string $message):
                 ? 'FRITZ!Box hat die SMS angenommen und lokal geloescht.'
                 : 'FRITZ!Box hat die SMS angenommen.',
             'details' => [
-                'twofactor' => true,
+                'twofactor' => $usedTwofactor,
                 'message_uid' => $newUid,
                 'delete_after_send' => $deleteAfterSend,
                 'delete' => $deleteInfo,
@@ -677,10 +812,10 @@ function tp_sms_send_seven(array $settings, string $recipient, string $message):
     ];
 }
 
-function tp_sms_dispatch(array $settings, string $provider, string $recipient, string $message): array
+function tp_sms_dispatch(array $settings, string $provider, string $recipient, string $message, array $context = []): array
 {
     $maxLength = (int)($settings['sms']['max_text_length'] ?? 612);
-    if (!in_array($provider, ['none', 'seven', 'fritz'], true)) {
+    if (!in_array($provider, ['none', 'seven', 'fritz', 'queue'], true)) {
         throw new RuntimeException('Unbekannter SMS-Provider.');
     }
     if ($provider !== 'none' && trim($recipient) === '') {
@@ -706,12 +841,16 @@ function tp_sms_dispatch(array $settings, string $provider, string $recipient, s
     if ($provider === 'seven') {
         return tp_sms_send_seven($settings, $recipient, $message);
     }
-    return tp_sms_send_fritz($settings, $recipient, $message);
+    if ($provider === 'queue') {
+        require_once __DIR__ . '/telepraxis-sms-queue.php';
+        return tp_sms_queue_enqueue($settings, $recipient, $message, $context);
+    }
+    return tp_sms_send_fritz($settings, $recipient, $message, $context['on_fritz_message_created'] ?? null);
 }
 
-function tp_sms_send_default(string $recipient, string $message): array
+function tp_sms_send_default(string $recipient, string $message, array $context = []): array
 {
     $settings = tp_sms_load_settings();
     $provider = tp_sms_provider_from_value((string)($settings['default_provider'] ?? 'none'));
-    return tp_sms_dispatch($settings, $provider, $recipient, $message);
+    return tp_sms_dispatch($settings, $provider, $recipient, $message, $context);
 }

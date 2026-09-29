@@ -33,7 +33,7 @@ header('Content-Type: text/html; charset=utf-8');
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Telepraxis Kontakt</title>
+  <title>kienzlefon app - Kontakt</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 12px; }
     label { display:block; margin: 12px 0 6px; font-weight: 600; }

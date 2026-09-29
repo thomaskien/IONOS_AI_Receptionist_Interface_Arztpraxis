@@ -1,0 +1,27 @@
+[Unit]
+Description=Telepraxis SMS-Queue und optionaler Empfang
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telepraxis-sms
+Group=telepraxis-sms
+UMask=0007
+WorkingDirectory=/opt/telepraxis-sms
+ExecStart=/usr/bin/php /opt/telepraxis-sms/telepraxis-sms-worker.php --config /etc/telepraxis-sms/worker.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/telepraxis-sms
+# Bei aktiviertem Empfang zusaetzlich den bestaetigten lokalen Ziel-Inboxpfad
+# freigeben und dem Dienstkonto die Kanalgruppe zuweisen (CHANNEL ersetzen):
+# SupplementaryGroups=tp-CHANNEL
+# ReadWritePaths=/srv/telepraxis/CHANNEL/inbox
+
+[Install]
+WantedBy=multi-user.target

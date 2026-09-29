@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-29",
+  "kienzlefon_commit": "9a135c0422c485b6620f43eb8b43732f7dc53399",
+  "ionos_commit": "4c8c665fcea601af3e78f337c3d1a7d267f7987e",
+  "verified_tests": 59,
+  "files": {
+    "README.md": "cc907696c3141847806744f5614a50f9e90ba0213c7bdba105ed1352f6d54aea",
+    "demo-webseite/telepraxis-app-demo.php": "37c555a5ce719ee1c84c44228ddac918f99c13ba2e4471bf517bd361f20f35bb",
+    "demo-webseite/telepraxis-sms.php": "b6443711975ff782c6a3f4a99f0093000bea2cae64ed293f562f298cc59aa877",
+    "demo-webseite/telepraxis-sms-queue.php": "d2f6f46490c8c7b461cf90e6fb7c43b7aca166b3b2b80428c87f0b1e05246d56",
+    "demo-webseite/telepraxis-sms-worker.php": "3c5e00ab01a55fe86e2106497395bd4101855cbe7592be8cbd981fffaecbed6c",
+    "config/sms-queue-web.example.json": "e4ccec05a9ed0d0ada826d193cb1ae4a122f338384fea7a1e82b2d0823713520",
+    "config/sms-queue-worker.example.json": "bac6959da02ee3ff1dd7505b438d5300a935351c8868a10222550e42f5009fff",
+    "config/telepraxis-sms-worker.service": "161c0b045033e0d730f37a24d59a839701c77cd4ae17554a82b0d8703d25dffa",
+    "docs/SMS-QUEUE.md": "f6747a9851aa7d831ac34d7537d62c61689623a218ed8f0ed7256ba456296cf5",
+    "tests/test_telepraxis_sms.py": "00efec06f1966f617cc53f8ea3651cea7a718cdf176846bb766e0316d4850431",
+    "tests/test_telepraxis_sms_auto_reply.py": "23f1e463b899179b6e8082cf5873d7b0d5d0abe002a320f8b9dc083183ff7b32",
+    "tests/test_telepraxis_sms_cleanup.py": "edceb2f3796de7c972b4ba1d15b5995fbc30f1c613dfa68c0b6dce1262e11b06",
+    "tests/test_telepraxis_sms_queue.py": "fe1377bba966abb1cb19a98fb265a6ced133459af3ceacd213284a47fd2b0308",
+    "tests/test_telepraxis_sms_web_queue.py": "774ec0eda308406ce3d67489d223e7510ddddc3cfb874cf01303f359c327ceaa"
+  }
+}

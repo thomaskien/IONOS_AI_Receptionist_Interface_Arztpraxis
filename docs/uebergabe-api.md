@@ -4,7 +4,7 @@ Stand: 2026-07-11
 
 ## Ziel
 
-Der IONOS KI-Telefonassistent sendet strukturierte Anliegen per HTTP-POST an einen eigenen PHP-Endpoint. Jede Anfrage wird als einzelne JSON-Datei gespeichert und spaeter von der Telepraxis-App verarbeitet.
+Der IONOS KI-Telefonassistent sendet strukturierte Anliegen per HTTP-POST an einen eigenen PHP-Endpoint. Jede Anfrage wird als einzelne JSON-Datei gespeichert und spaeter von der kienzlefon app verarbeitet.
 
 Der kanalbezogene Endpoint hat das Schema:
 
@@ -283,7 +283,7 @@ Senden NICHT Erfolgreich: Empfang begrenzt auf maximal 20 Nachrichten in 10 Minu
 
 Spaeteres Ziel:
 
-- Telepraxis-App soll die kanalbezogene lokale Inbox `/srv/telepraxis/<ziel-benutzer>/inbox/*.json` einlesen.
+- Die kienzlefon app soll die kanalbezogene lokale Inbox `/srv/telepraxis/<ziel-benutzer>/inbox/*.json` einlesen.
 - Felder robust darstellen, weil verschiedene `typ` unterschiedliche Feldmengen liefern.
 - Bei aelteren Beispielen kann statt `payload.id` auch `anrufer_id` vorkommen; Parser sollte beides tolerant lesen.
 

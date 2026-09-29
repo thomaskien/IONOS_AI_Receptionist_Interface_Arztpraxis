@@ -1,6 +1,8 @@
-# telepraxis-app
+# kienzlefon app
 
 Kompakte Ein(zwei)-Dateien-Webapp zur Bearbeitung eingehender JSON-Vorgänge aus dem Verzeichnis `./inbox`.
+
+Die **kienzlefon app** hieß bisher **telepraxis-app**. Die Umbenennung ändert die Version nicht: Sie bleibt bei **3.4.2**. Dateinamen, technische Bezeichner und Pfade bleiben vorerst unverändert; die bisherigen Screenshots zeigen noch den alten Namen.
 
 Die Haupt-App bleibt `telepraxis-app.php`. Für SMS-Versand wird zusätzlich `telepraxis-sms.php` als separate Funktionsdatei eingebunden; die Konfiguration erfolgt über `sms-config.php`.
 
@@ -28,7 +30,7 @@ Die App lädt die Daten regelmäßig neu und eignet sich damit für den laufende
 - Soft-Delete in den Papierkorb
 - Admin-Funktionen für **Wiederherstellen** und **endgültiges Löschen**
 - Polling-Aktualisierung alle 5 Sekunden
-- Benachrichtigungston bei neu erkannten Eingängen
+- Benachrichtigungston bei neuen Vorgängen und weiteren eingegangenen SMS
 - Klick auf den Namen kopiert `Nachname, Vorname JJJJ`
 - Klick auf das Geburtsdatum kopiert das Geburtsdatum
 - Gesprächszusammenfassung in Bearbeitung ein- und ausklappbar
@@ -36,7 +38,10 @@ Die App lädt die Daten regelmäßig neu und eignet sich damit für den laufende
 - Telefonnummern sind direkt anklickbar
 - Übermittelte Telefonnummer wird zusätzlich angezeigt
 - SMS-Button in **In Bearbeitung**, nur bei vorhandener Rückrufnummer
-- SMS-Versand asynchron über `telepraxis-sms.php`; gesendete SMS werden wie Kommentare im Vorgang eingetragen
+- SMS-Versand direkt oder über eine persistente Queue; Versandstatus erscheint im Kommentarverlauf
+- SMS-Empfang über einen eigenständigen Worker mit dauerhafter Sicherung und Routerbereinigung
+- Weitere SMS derselben Nummer im zuletzt angelegten offenen Vorgang, blau markiert und chronologisch unter Kommentare
+- Automatische Bestätigung nur für die erste SMS je Vorgang; keine automatischen Antworten an Kurznummern oder ins Ausland
 - Lokale Speicherung von Arbeitsplatz, Ton, Sichtbarkeit von Abgeschlossen und Papierkorb
 - **Kontaktformular mit kanalbezogenem Endpunkt**
 
@@ -73,6 +78,33 @@ Die App unterstützt die aktuell besprochenen Request-Typen des Telefonassistent
 4. Arbeitsplatz eintragen
 5. Vorgänge bearbeiten, abschließen, löschen oder bei vorhandener Rückrufnummer SMS senden
 
+## Bestehende App aktualisieren
+
+Für bestehende Zielsysteme gibt es `kienzlefon-app-update-v1.0.sh`. Der Updater
+aktualisiert die App und ihre SMS-Bibliotheken, übernimmt die vorhandenen
+Konfigurationskonstanten und sichert die bisherigen Programmdateien außerhalb
+des Webroots. Vorgänge, SMS-Konfigurationsdateien, Schlüssel und Fetch-Dienst
+bleiben erhalten. Ein vorhandener separater SMS-Worker kann gemeinsam mit
+seinen Bibliotheken aktualisiert werden.
+
+Der Updater umfasst bisher nur den Worker und seine beiden Versandbibliotheken.
+Die drei zusätzlichen Empfangsmodule müssen separat aus demselben Quellstand
+installiert werden. Bei aktiviertem Empfang App und Empfangsspeicher koordiniert
+aktualisieren; siehe [SMS-Empfang](docs/SMS-EMPFANG.md#weitere-sms-zum-offenen-vorgang).
+
+Aus einem vollständigen lokalen Quellverzeichnis auf dem Zielsystem zunächst
+prüfen, anschließend das Update starten:
+
+```sh
+sudo bash kienzlefon-app-update-v1.0.sh --source-dir "$PWD" --check
+sudo bash kienzlefon-app-update-v1.0.sh --source-dir "$PWD"
+```
+
+Unveröffentlichte Änderungen sind nur im lokalen Quellmodus verfügbar. Ohne
+`--source-dir` lädt der Updater einen zusammenhängenden Stand aus GitHub.
+Details zu Diensten, Sicherungen und Grenzen stehen in
+[App aktualisieren](docs/APP-UPDATE.md).
+
 ## Kommentarfunktion
 
 <img src="Screenshot 2026-04-02 at 14-37-32 telepraxis-app v2.6.png" alt="drawing" width="800"/>
@@ -97,7 +129,7 @@ Name: X-TP-Token
 Value: der Wert aus $IONOS_PSK (nachdem du CHANGE_ME... ersetzt hast)
 </pre>
 
-# telepraxis – verschlüsselter JSON-Transport
+# kienzlefon app – verschlüsselter JSON-Transport
 
 ## Systemaufbau
 
@@ -109,13 +141,13 @@ Diese Datei nimmt JSON per HTTP-POST entgegen.
 Die Daten werden **nicht im Klartext gespeichert**, sondern direkt in PHP mit einem fest eingebetteten **Public Key** verschlüsselt und als Datei im kanalbezogenen Inbox-Verzeichnis abgelegt.
 
 Beispiel:
-- SSH-Benutzer: `dahl`
-- PHP-Datei: `/var/www/html/telepraxis-receive-dahl.php`
-- HTTPS-Endpoint: `https://###servername###/telepraxis-receive-dahl.php`
-- Kontaktformular: `/var/www/html/kontakt-dahl.php`
-- Kontakt-URL: `https://###servername###/kontakt-dahl.php`
-- Ablage: `/srv/telepraxis/dahl/inbox/*.json.enc`
-- OTP/State: `/srv/telepraxis/state/dahl/otp.sqlite`
+- SSH-Benutzer: `CHANNEL` (durch den eigenen Kanalnamen ersetzen)
+- PHP-Datei: `/var/www/html/telepraxis-receive-CHANNEL.php`
+- HTTPS-Endpoint: `https://###servername###/telepraxis-receive-CHANNEL.php`
+- Kontaktformular: `/var/www/html/kontakt-CHANNEL.php`
+- Kontakt-URL: `https://###servername###/kontakt-CHANNEL.php`
+- Ablage: `/srv/telepraxis/CHANNEL/inbox/*.json.enc`
+- OTP/State: `/srv/telepraxis/state/CHANNEL/otp.sqlite`
 
 ### 2. Zielsystem
 Das Zielsystem besitzt den zugehörigen **Private Key**.  
@@ -504,3 +536,53 @@ chmod +x quellserver-benutzer-erzeugen-v1.8.sh
   }
 }
 ```
+
+## SMS-Anbindung
+
+Das IONOS-Repository ist künftig maßgeblich für die SMS-Funktionen. Die reguläre
+App unterstützt die persistente Queue als dritten aktiven Versandweg neben
+FRITZ!Box und seven.io. Sie wird in `sms-config.php` ausgewählt; der unabhängige
+Worker erledigt Versand und Bereinigung.
+
+Der Empfang ist implementiert und auf einer FRITZ!Box 6850 LTE mit FRITZ!OS 8.25
+geprüft. Vollständige SMS werden vor der Routerbereinigung dauerhaft lokal
+gesichert und in die Ziel-Inbox übernommen. Bei mehreren offenen Vorgängen
+derselben Nummer entscheidet der jüngste Anlagezeitpunkt; **Neu** und **In
+Bearbeitung** sind zulässig, abgeschlossene und gelöschte Vorgänge nicht.
+Weitere SMS erscheinen als blaue Kommentare mit Empfangszeit und Absender.
+
+Die konfigurierte Bestätigungsliste wird nur bei der ersten SMS je Vorgang
+eingereiht und nur an vollständige deutsche Nummern. Weitere SMS lösen den
+gewohnten Benachrichtigungston aus, ohne erneute Bestätigung. Bereits bekannte
+SMS und der erste Seitenabruf bleiben stumm; die Ton-Einstellung gilt weiterhin.
+
+Antworttexte stehen in `sms-config.php` unter **„Vorbereitete Auto-Reply-SMS
+(eine SMS pro Zeile)“**. Nach dem Speichern den SMS-Worker neu starten.
+Bei FRITZ!Box maximal 70 UTF-16-Codeeinheiten je ausgehender SMS; ein leeres Feld
+deaktiviert automatische Antworten. Bereits gespeicherte Antwortentscheidungen
+werden dadurch nicht nachträglich geändert.
+
+- [Einrichtung und Grenzen der SMS-Queue](docs/SMS-QUEUE.md)
+- [SMS-Empfang, Vorgangszuordnung und Wiederanlauf](docs/SMS-EMPFANG.md)
+- [Repository-Zuordnung und Übergabe](docs/SMS-REPOSITORIES.md)
+- [Übergabe für die weitere SMS-Entwicklung](docs/SMS-UEBERGABE-2026-09-29.md)
+
+Die getestete FRITZ!OS-Version liefert lange SMS bereits zusammengesetzt.
+Unbekannte Segment- oder Listenformate werden nicht geraten: Sie bleiben zur
+Prüfung zurückgehalten. Andere Geräte/Firmwarestände müssen gesondert geprüft werden.
+
+## Entwicklung prüfen
+
+Mit PHP CLI, Python 3 und Node.js im `PATH`:
+
+```sh
+python3 -B -m unittest discover -s tests
+php -l telepraxis-app.php
+bash -n zielserver-vorbereiten-v1.8.sh
+bash -n kienzlefon-app-update-v1.0.sh
+git diff --check
+```
+
+Die Tests verwenden temporäre Daten und lokale HTTP-Simulationen ohne echten
+SMS-Versand. Prüfstand vom 29.09.2026: **170 Tests bestanden**, davon 146 für
+SMS/App/Konfiguration und 24 für den Updater.

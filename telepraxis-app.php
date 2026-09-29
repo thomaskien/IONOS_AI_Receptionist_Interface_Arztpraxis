@@ -4,6 +4,14 @@
  * Version: 3.4.2
  *
  * Fortgeführter Changelog (niemals entfernen, nur ergänzen):
+ * - 2026-09-29 (Version unverändert: 3.4.2)
+ *   - Benachrichtigungston auch für neue SMS-Kommentare in bestehenden Vorgängen; bekannte SMS lösen beim Polling keinen weiteren Ton aus.
+ * - 2026-09-29 (Version unverändert: 3.4.2)
+ *   - Weitere eingegangene SMS farbig im chronologischen Kommentarverlauf dargestellt; gemeinsame Inbox-Sperre und atomare Änderungen schützen vor gleichzeitigen Worker-Zugriffen.
+ * - 2026-09-29 (Version unverändert: 3.4.2)
+ *   - SMS-Queue als dritten aktiven Versandweg integriert; Webanfragen speichern Aufträge ohne Routerwartezeit, Versandstatus erscheint bei der Karte.
+ * - 2026-09-29 (Version unverändert: 3.4.2)
+ *   - Produktname in Kopfzeile und Browsertitel auf "kienzlefon app" umgestellt; Dateinamen und technische Bezeichner bleiben unverändert.
  * - v3.4.2 (2026-07-11)
  *   - Eigene Kategorie "Termin" ergänzt; Termine werden wie Überweisungen sortiert und zeigen Terminwunsch/Grund als Haupttext.
  *   - Webformular-Termine werden nun als typ "termin" statt als "sonstiges" verarbeitet.
@@ -96,7 +104,7 @@ date_default_timezone_set('Europe/Berlin');
 define('TELEPRAXIS_APP', true);
 require_once __DIR__ . '/telepraxis-sms.php';
 
-const TELEPRAXIS_APP_NAME = 'telepraxis-app';
+const TELEPRAXIS_APP_NAME = 'kienzlefon app';
 const TELEPRAXIS_APP_VERSION = '3.4.2';
 const TELEPRAXIS_INBOX_DIR = __DIR__ . DIRECTORY_SEPARATOR . 'inbox';
 const TELEPRAXIS_POLL_INTERVAL_MS = 5000;
@@ -292,15 +300,23 @@ function tp_normalize_comments($comments): array
         if (!is_array($comment)) {
             continue;
         }
-        $text = trim((string)($comment['text'] ?? ''));
+        $isSms = ($comment['kind'] ?? '') === 'sms_received'
+            && preg_match('/^[a-f0-9]{64}$/D', (string)($comment['sms_received_key'] ?? ''));
+        $text = $isSms ? (string)($comment['text'] ?? '') : trim((string)($comment['text'] ?? ''));
         if ($text === '') {
             continue;
         }
-        $normalized[] = [
+        $item = [
             'text' => $text,
             'created_at' => (string)($comment['created_at'] ?? tp_now_iso()),
             'workplace' => tp_sanitize_workplace((string)($comment['workplace'] ?? '')),
         ];
+        if ($isSms) {
+            $item['kind'] = 'sms_received';
+            $item['sms_received_key'] = (string)$comment['sms_received_key'];
+            $item['sms_sender'] = (string)($comment['sms_sender'] ?? '');
+        }
+        $normalized[] = $item;
     }
 
     return $normalized;
@@ -485,6 +501,52 @@ function tp_build_main_text(array $entry): string
     return $summary !== '' ? $summary : ($grund !== '' ? $grund : ($anliegen !== '' ? $anliegen : '—'));
 }
 
+function tp_sms_queue_comments(string $fileName): array
+{
+    static $settings = null;
+    static $unavailable = false;
+    try {
+        if ($unavailable) {
+            throw new RuntimeException('Queue nicht erreichbar.');
+        }
+        if ($settings === null) {
+            $settings = tp_sms_load_settings();
+        }
+        if (trim((string)($settings['queue']['database_path'] ?? '')) === '') {
+            return [];
+        }
+        require_once __DIR__ . '/telepraxis-sms-queue.php';
+        $jobs = tp_sms_queue_for_source($settings, $fileName);
+        $comments = [];
+        foreach ($jobs as $job) {
+            $labels = [
+                'pending' => 'zum Versand vorgemerkt',
+                'sending' => 'wird gesendet',
+                'accepted' => ($job['delivery_provider'] ?? 'fritz') === 'seven'
+                    ? 'an seven.io übergeben' : 'an FRITZ!Box übergeben',
+                'failed' => 'fehlgeschlagen – bitte prüfen',
+                'uncertain' => 'Versand unklar – vor erneutem Versand prüfen',
+            ];
+            $label = $labels[$job['status']] ?? 'Status unbekannt – bitte prüfen';
+            $comments[] = [
+                'text' => 'SMS an ' . (string)$job['recipient'] . ' · ' . $label . ":\n" . (string)$job['message'],
+                'created_at' => (string)$job['created_at'],
+                'created_at_display' => tp_format_datetime((string)$job['created_at']),
+                'workplace' => (string)$job['workplace'],
+                'sms_job_id' => (string)$job['id'],
+                'sms_status' => (string)$job['status'],
+            ];
+        }
+        return $comments;
+    } catch (Throwable $error) {
+        $unavailable = true;
+        return [[
+            'text' => 'SMS-Queue-Status derzeit nicht verfügbar. Bereits vorgemerkte SMS nicht erneut absenden.',
+            'created_at' => '', 'created_at_display' => '', 'workplace' => '',
+        ]];
+    }
+}
+
 function tp_build_entry_view(array $entry, string $fileName): array
 {
     $entry = tp_ensure_entry_app($entry);
@@ -507,12 +569,20 @@ function tp_build_entry_view(array $entry, string $fileName): array
             continue;
         }
         $comments[] = [
-            'text' => trim((string)($comment['text'] ?? '')),
+            'text' => (string)($comment['text'] ?? ''),
             'created_at' => (string)($comment['created_at'] ?? ''),
             'created_at_display' => tp_format_datetime((string)($comment['created_at'] ?? '')),
             'workplace' => tp_sanitize_workplace((string)($comment['workplace'] ?? '')),
+            'kind' => (string)($comment['kind'] ?? ''),
+            'sms_received_key' => (string)($comment['sms_received_key'] ?? ''),
+            'sms_sender' => (string)($comment['sms_sender'] ?? ''),
         ];
     }
+
+    $comments = array_merge($comments, tp_sms_queue_comments($fileName));
+    usort($comments, static function (array $left, array $right): int {
+        return (strtotime($left['created_at']) ?: 0) <=> (strtotime($right['created_at']) ?: 0);
+    });
 
     return [
         'id' => (string)($entry['id'] ?? pathinfo($fileName, PATHINFO_FILENAME)),
@@ -603,51 +673,120 @@ function tp_inbox_file_path(string $fileName): string
     return TELEPRAXIS_INBOX_DIR . DIRECTORY_SEPARATOR . $safeFile;
 }
 
+/** Stable lock shared with the SMS worker, including atomic replacements and purge. */
+function tp_inbox_lock()
+{
+    $path = TELEPRAXIS_INBOX_DIR . DIRECTORY_SEPARATOR . '.telepraxis-inbox.lock';
+    clearstatcache(true, $path);
+    if (is_link($path) || (file_exists($path) && !is_file($path))) {
+        throw new RuntimeException('Inbox-Sperre nicht verfügbar.');
+    }
+    $oldUmask = umask(0007);
+    try {
+        $lock = @fopen($path, 'c+b');
+    } finally {
+        umask($oldUmask);
+    }
+    if (!is_resource($lock)) {
+        throw new RuntimeException('Inbox-Sperre nicht verfügbar.');
+    }
+    $opened = fstat($lock);
+    $current = @lstat($path);
+    if (!is_array($opened) || !is_array($current) || is_link($path)
+        || ($opened['mode'] & 0170000) !== 0100000
+        || $opened['dev'] !== $current['dev'] || $opened['ino'] !== $current['ino']) {
+        fclose($lock);
+        throw new RuntimeException('Inbox-Sperre nicht verfügbar.');
+    }
+    if (!flock($lock, LOCK_EX)) {
+        fclose($lock);
+        throw new RuntimeException('Inbox-Sperre fehlgeschlagen.');
+    }
+    return $lock;
+}
+
+function tp_write_entry_atomic(string $path, array $entry): void
+{
+    $json = json_encode($entry, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($json === false) {
+        throw new RuntimeException('JSON konnte nicht gespeichert werden.');
+    }
+    $json .= "\n";
+    $tempPath = TELEPRAXIS_INBOX_DIR . DIRECTORY_SEPARATOR . '.app-' . bin2hex(random_bytes(16)) . '.tmp';
+    $handle = false;
+    try {
+        $oldUmask = umask(0007);
+        try {
+            $handle = @fopen($tempPath, 'x+b');
+        } finally {
+            umask($oldUmask);
+        }
+        if (!is_resource($handle)) {
+            throw new RuntimeException('Vorgang konnte nicht gespeichert werden.');
+        }
+        $offset = 0;
+        while ($offset < strlen($json)) {
+            $written = @fwrite($handle, substr($json, $offset));
+            if ($written === false || $written === 0) {
+                throw new RuntimeException('Vorgang konnte nicht gespeichert werden.');
+            }
+            $offset += $written;
+        }
+        $mode = @fileperms($path);
+        if ($mode === false || !@chmod($tempPath, $mode & 0777) || !@fflush($handle)
+            || (function_exists('fsync') && !@fsync($handle))) {
+            throw new RuntimeException('Vorgang konnte nicht gespeichert werden.');
+        }
+        fclose($handle);
+        $handle = false;
+        if (!@rename($tempPath, $path)) {
+            throw new RuntimeException('Vorgang konnte nicht gespeichert werden.');
+        }
+        if (function_exists('fsync')) {
+            $directory = @fopen(TELEPRAXIS_INBOX_DIR, 'rb');
+            if (!is_resource($directory)) {
+                throw new RuntimeException('Speicherung konnte nicht bestätigt werden. Bitte Ansicht aktualisieren.');
+            }
+            try {
+                if (!@fsync($directory)) {
+                    throw new RuntimeException('Speicherung konnte nicht bestätigt werden. Bitte Ansicht aktualisieren.');
+                }
+            } finally {
+                fclose($directory);
+            }
+        }
+    } finally {
+        if (is_resource($handle)) {
+            fclose($handle);
+        }
+        if (is_file($tempPath)) {
+            @unlink($tempPath);
+        }
+    }
+}
+
 function tp_update_file(string $fileName, callable $mutator): array
 {
     $path = tp_inbox_file_path($fileName);
-    if (!is_file($path)) {
-        throw new RuntimeException('Datei nicht gefunden.');
-    }
-
-    $fh = @fopen($path, 'c+');
-    if (!$fh) {
-        throw new RuntimeException('Datei konnte nicht geöffnet werden.');
-    }
-
+    $lock = tp_inbox_lock();
     try {
-        if (!flock($fh, LOCK_EX)) {
-            throw new RuntimeException('Dateisperre fehlgeschlagen.');
+        clearstatcache(true, $path);
+        if (is_link($path) || !is_file($path)) {
+            throw new RuntimeException('Datei nicht gefunden.');
         }
-        rewind($fh);
-        $raw = stream_get_contents($fh) ?: '';
-        $decoded = json_decode($raw, true);
+        $decoded = tp_read_json_file($path);
         if (!is_array($decoded)) {
             throw new RuntimeException('JSON konnte nicht gelesen werden.');
         }
-
-        $decoded = tp_ensure_entry_app($decoded);
-        $updated = $mutator($decoded);
+        $updated = $mutator(tp_ensure_entry_app($decoded));
         if (!is_array($updated)) {
             throw new RuntimeException('Interner Fehler beim Aktualisieren.');
         }
-
-        $json = json_encode($updated, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($json === false) {
-            throw new RuntimeException('JSON konnte nicht gespeichert werden.');
-        }
-
-        rewind($fh);
-        ftruncate($fh, 0);
-        fwrite($fh, $json . "\n");
-        fflush($fh);
-        flock($fh, LOCK_UN);
-        fclose($fh);
+        tp_write_entry_atomic($path, $updated);
         return $updated;
-    } catch (Throwable $e) {
-        @flock($fh, LOCK_UN);
-        @fclose($fh);
-        throw $e;
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
     }
 }
 
@@ -811,9 +950,36 @@ function tp_handle_api(): void
                 tp_json_response(['ok' => false, 'error' => 'Keine gültige Rückrufnummer für SMS vorhanden.'], 400);
             }
 
-            $smsResult = tp_sms_send_default($recipient, $smsText);
+            $requestId = (string)($_POST['sms_request_id'] ?? '');
+            if ($requestId !== '' && !preg_match('/^[a-f0-9]{32,64}$/D', $requestId)) {
+                tp_json_response(['ok' => false, 'error' => 'Ungültige SMS-Auftragskennung.'], 400);
+            }
+            $context = ['source_file' => $safeFile, 'workplace' => $workplace];
+            if ($requestId !== '') {
+                $context['request_id'] = $requestId;
+            }
+            // Nach CSRF-Prüfung Sitzungsdaten sichern und die Sitzung freigeben.
+            // Auch direkte Provider dürfen andere Anfragen dieses Browsers nicht blockieren.
+            $csrfToken = tp_get_csrf_token();
+            session_write_close();
+            $smsResult = tp_sms_send_default($recipient, $smsText, $context);
             if (($smsResult['provider'] ?? '') === 'none') {
                 tp_json_response(['ok' => false, 'error' => 'SMS-Versand ist deaktiviert.'], 400);
+            }
+
+            if (!empty($smsResult['queued'])) {
+                // Der Queue-Auftrag ist zugleich der dauerhafte SMS-Verlauf.
+                // Keine zweite Schreiboperation in der Vorgangsdatei nach erfolgreichem Enqueue.
+                tp_json_response([
+                    'ok' => true,
+                    'message' => !empty($smsResult['duplicate'])
+                        ? 'SMS-Auftrag bereits vorhanden. Der aktuelle Status steht bei der Karte.'
+                        : 'SMS zum Versand vorgemerkt.',
+                    'provider' => 'queue',
+                    'queued' => true,
+                    'job_id' => (string)$smsResult['job_id'],
+                    'csrf' => $csrfToken,
+                ], 202);
             }
 
             $commentText = 'SMS an Rückrufnummer ' . (tp_normalize_phone($callbackRaw) ?: $recipient) . ":\n" . $smsText;
@@ -825,7 +991,7 @@ function tp_handle_api(): void
                 'message' => 'SMS gesendet und als Kommentar gespeichert.',
                 'entry' => tp_build_entry_view($updated, $safeFile),
                 'provider' => (string)($smsResult['provider'] ?? ''),
-                'csrf' => tp_get_csrf_token(),
+                'csrf' => $csrfToken,
             ]);
         }
 
@@ -850,18 +1016,23 @@ function tp_handle_api(): void
             if (!tp_is_admin()) {
                 tp_json_response(['ok' => false, 'error' => 'Admin erforderlich.'], 403);
             }
-            $safeFile = basename($file);
-            $path = TELEPRAXIS_INBOX_DIR . DIRECTORY_SEPARATOR . $safeFile;
-            $entry = tp_read_json_file($path);
-            if (!is_array($entry)) {
-                tp_json_response(['ok' => false, 'error' => 'Datei konnte nicht gelesen werden.'], 400);
-            }
-            $entry = tp_ensure_entry_app($entry);
-            if (empty($entry['app']['deleted'])) {
-                tp_json_response(['ok' => false, 'error' => 'Endlöschung nur aus dem Papierkorb erlaubt.'], 400);
-            }
-            if (!@unlink($path)) {
-                tp_json_response(['ok' => false, 'error' => 'Datei konnte nicht endgültig gelöscht werden.'], 500);
+            $path = tp_inbox_file_path($file);
+            $lock = tp_inbox_lock();
+            try {
+                $entry = is_link($path) ? null : tp_read_json_file($path);
+                if (!is_array($entry)) {
+                    tp_json_response(['ok' => false, 'error' => 'Datei konnte nicht gelesen werden.'], 400);
+                }
+                $entry = tp_ensure_entry_app($entry);
+                if (empty($entry['app']['deleted'])) {
+                    tp_json_response(['ok' => false, 'error' => 'Endlöschung nur aus dem Papierkorb erlaubt.'], 400);
+                }
+                if (!@unlink($path)) {
+                    tp_json_response(['ok' => false, 'error' => 'Datei konnte nicht endgültig gelöscht werden.'], 500);
+                }
+            } finally {
+                flock($lock, LOCK_UN);
+                fclose($lock);
             }
             tp_json_response(['ok' => true, 'message' => 'Datei endgültig gelöscht.', 'csrf' => tp_get_csrf_token()]);
         }
@@ -1522,6 +1693,13 @@ $isAdmin = tp_is_admin();
             color: var(--muted);
             margin-bottom: 4px;
         }
+        .comment-item.comment-item-sms {
+            background: #dbeafe;
+            border: 1px solid #60a5fa;
+            border-left: 5px solid #1d4ed8;
+        }
+        .comment-item-sms .comment-meta { color: #1e3a8a; }
+        .comment-sms-label { font-weight: 800; }
         .comment-text {
             white-space: pre-wrap;
             line-height: 1.35;
@@ -1593,7 +1771,7 @@ $isAdmin = tp_is_admin();
 <body>
 <div class="topbar">
     <div class="topbar-row">
-        <div class="topbar-title"><span class="topbar-title-app">telepraxis-app</span><span class="topbar-title-meta">v<?= tp_h(TELEPRAXIS_APP_VERSION) ?> von Dr. Thomas Kienzle</span></div>
+        <div class="topbar-title"><span class="topbar-title-app"><?= tp_h(TELEPRAXIS_APP_NAME) ?></span><span class="topbar-title-meta">v<?= tp_h(TELEPRAXIS_APP_VERSION) ?> von Dr. Thomas Kienzle</span></div>
         <div class="topbar-summary" id="header-summary"></div>
         <label class="summary-chip summary-toggle-chip" id="completed-toggle-chip"><span>Abgeschlossen anzeigen</span><input type="checkbox" id="completed-toggle-top" checked></label>
         <div class="menu-shell">
@@ -1730,11 +1908,13 @@ $isAdmin = tp_is_admin();
 <script>
 (() => {
     const csrfToken = <?= json_encode($csrfToken, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const appName = <?= json_encode(TELEPRAXIS_APP_NAME, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     const appVersion = <?= json_encode(TELEPRAXIS_APP_VERSION, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
     let currentCsrf = csrfToken;
     let isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
     let audioContext = null;
     let lastSeenIds = new Set();
+    const seenIncomingSmsKeys = new Set();
     let initialized = false;
     let lastEntries = [];
     let lastBookmarkUrl = '';
@@ -1744,6 +1924,7 @@ $isAdmin = tp_is_admin();
     const commentDrafts = new Map();
     const smsDrafts = new Map();
     const smsSendingFiles = new Set();
+    const smsRequestIds = new Map();
     const selected = {
         middle: new Set(),
         right: new Set(),
@@ -1867,7 +2048,7 @@ $isAdmin = tp_is_admin();
 
     function setDocumentTitle(entries) {
         const neu = (entries || []).filter(entry => entry && !entry.deleted && entry.status === 'neu').length;
-        document.title = `Neu: ${neu} – telepraxis-app v${appVersion}`;
+        document.title = `Neu: ${neu} – ${appName} v${appVersion}`;
     }
 
     function showMessage(text, isError = false) {
@@ -2196,8 +2377,8 @@ $isAdmin = tp_is_admin();
                 <h4>Kommentare</h4>
                 <div class="comments-list">
                     ${comments.map(comment => `
-                        <div class="comment-item">
-                            <div class="comment-meta">${escapeHtml(comment.created_at_display || '—')} · Platz: ${escapeHtml(comment.workplace || '—')}</div>
+                        <div class="comment-item${comment.kind === 'sms_received' ? ' comment-item-sms' : ''}">
+                            <div class="comment-meta">${comment.kind === 'sms_received' ? `<span class="comment-sms-label">SMS eingegangen</span> · ${escapeHtml(comment.created_at_display || '—')} · von ${escapeHtml(comment.sms_sender || '—')}` : `${escapeHtml(comment.created_at_display || '—')} · Platz: ${escapeHtml(comment.workplace || '—')}`}</div>
                             <div class="comment-text">${escapeHtml(comment.text || '')}</div>
                         </div>`).join('')}
                 </div>
@@ -2216,6 +2397,11 @@ $isAdmin = tp_is_admin();
                     <button class="btn" type="button" data-toggle-comment="${escapeHtml(file)}">Schließen</button>
                 </div>
             </div>`;
+    }
+
+    function createReceivedSmsHistory(entry) {
+        return Array.isArray(entry.comments) && entry.comments.some(comment => comment.kind === 'sms_received')
+            ? createCommentItems(entry) : '';
     }
 
     function createSmsEditor(entry) {
@@ -2309,7 +2495,7 @@ $isAdmin = tp_is_admin();
                 ${area === 'middle' || area === 'right' || area === 'trash' ? createSelectionControl(area, entry, false) : ''}
                 ${createHeader(entry)}
                 <div class="card-body ${bodyClass}" title="${escapeHtml(entry.body || '')}">${escapeHtml(entry.body || '—')}</div>
-                ${area === 'left' ? createLeftExtras(entry) : ''}
+                ${area === 'left' ? createLeftExtras(entry) : createReceivedSmsHistory(entry)}
                 ${deletedExtra}
                 ${createCardActions(entry, area)}
             </article>`;
@@ -2358,7 +2544,7 @@ $isAdmin = tp_is_admin();
                             <td>${createSelectionControl(area, entry, true)}</td>
                             <td>${escapeHtml(entry.category_label || '—')}</td>
                             <td class="table-patient"><div class="table-name">${name}${birth}</div><div class="table-received">${escapeHtml(entry.received_at_display || '—')}</div></td>
-                            <td><div class="table-preview${area === 'middle' || area === 'right' ? ' table-preview-clamped' : ''}" title="${escapeHtml(entry.body || '—')}">${escapeHtml(entry.body || '—')}</div></td>
+                            <td><div class="table-preview${area === 'middle' || area === 'right' ? ' table-preview-clamped' : ''}" title="${escapeHtml(entry.body || '—')}">${escapeHtml(entry.body || '—')}</div>${createReceivedSmsHistory(entry)}</td>
                             ${hasDeletedCol ? `<td class="table-received">${escapeHtml(entry.deleted_at_display || '—')}</td>` : ''}
                             <td>${tableActionButtons(entry, area)}</td>
                         </tr>`;
@@ -2471,7 +2657,9 @@ $isAdmin = tp_is_admin();
             lines.push('');
             lines.push('Kommentare:');
             comments.forEach(comment => {
-                lines.push(`${comment.created_at_display || '—'} · Platz: ${comment.workplace || '—'}`);
+                lines.push(comment.kind === 'sms_received'
+                    ? `SMS eingegangen · ${comment.created_at_display || '—'} · von ${comment.sms_sender || '—'}`
+                    : `${comment.created_at_display || '—'} · Platz: ${comment.workplace || '—'}`);
                 lines.push(comment.text || '');
                 lines.push('');
             });
@@ -2564,6 +2752,7 @@ $isAdmin = tp_is_admin();
     }
 
     async function sendSms(file) {
+        if (smsSendingFiles.has(file)) return;
         const draft = String(smsDrafts.get(file) || '').trim();
         if (!draft) {
             showMessage('SMS-Text fehlt.', true);
@@ -2581,22 +2770,35 @@ $isAdmin = tp_is_admin();
             return;
         }
 
+        let request = smsRequestIds.get(file);
+        if (!request || request.text !== draft || request.recipient !== entry.sms_phone_href || request.workplace !== workplace) {
+            const bytes = new Uint8Array(16);
+            window.crypto.getRandomValues(bytes);
+            request = {
+                id: Array.from(bytes, value => value.toString(16).padStart(2, '0')).join(''),
+                text: draft, recipient: entry.sms_phone_href, workplace,
+            };
+            smsRequestIds.set(file, request);
+        }
+
         const formData = new FormData();
         formData.set('csrf', currentCsrf);
         formData.set('action', 'send_sms');
         formData.set('file', file);
         formData.set('workplace', workplace);
         formData.set('sms_text', draft);
+        formData.set('sms_request_id', request.id);
 
         smsSendingFiles.add(file);
         render(lastEntries);
-        showMessage('SMS wird gesendet...');
+        showMessage('SMS-Auftrag wird übermittelt...');
         try {
-            await apiRequest(formData);
+            const result = await apiRequest(formData);
             smsDrafts.delete(file);
+            smsRequestIds.delete(file);
             openSmsFiles.delete(file);
             await refresh();
-            showMessage('SMS gesendet und als Kommentar gespeichert.');
+            showMessage(result.message || 'SMS-Auftrag angenommen.');
         } catch (error) {
             showMessage(error.message || 'SMS konnte nicht gesendet werden.', true);
             render(lastEntries);
@@ -2628,17 +2830,23 @@ $isAdmin = tp_is_admin();
             if (!response.ok || !data.ok) throw new Error(data.error || 'Liste konnte nicht geladen werden.');
             if (data.csrf) currentCsrf = data.csrf;
             if (typeof data.is_admin === 'boolean') isAdmin = data.is_admin;
-            const ids = new Set((data.entries || []).filter(entry => !entry.deleted).map(entry => entry.file));
-            if (initialized) {
-                for (const id of ids) {
-                    if (!lastSeenIds.has(id)) {
-                        playNotificationTone();
-                        break;
-                    }
+            const entries = Array.isArray(data.entries) ? data.entries : [];
+            const ids = new Set(entries.filter(entry => !entry.deleted).map(entry => entry.file));
+            let hasNewSms = false;
+            for (const entry of entries) {
+                for (const comment of (Array.isArray(entry.comments) ? entry.comments : [])) {
+                    const key = comment?.kind === 'sms_received' ? comment.sms_received_key : '';
+                    if (typeof key !== 'string' || !key || seenIncomingSmsKeys.has(key)) continue;
+                    if (!entry.deleted) hasNewSms = true;
+                    // Keep known keys even if an older polling response arrives later.
+                    seenIncomingSmsKeys.add(key);
                 }
             }
+            if (initialized && (hasNewSms || [...ids].some(id => !lastSeenIds.has(id)))) {
+                playNotificationTone();
+            }
             lastSeenIds = ids;
-            render(Array.isArray(data.entries) ? data.entries : []);
+            render(entries);
             initialized = true;
         } catch (error) {
             showMessage(error.message || 'Aktualisierung fehlgeschlagen.', true);

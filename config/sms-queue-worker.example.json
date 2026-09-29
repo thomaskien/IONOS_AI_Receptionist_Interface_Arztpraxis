@@ -1,0 +1,29 @@
+{
+    "receive": {
+        "enabled": false,
+        "format": "fritz-sms-list-assembled",
+        "output_mode": "target-local",
+        "inbox_path": "/srv/telepraxis/CHANNEL/inbox"
+    },
+    "auto_reply": {
+        "messages": [
+            "1/2 SMS an die Praxis weitergeleitet. Testbetrieb! Vielen Dank!",
+            "2/2 Fehlen persönliche Daten, bitte eine neue vollständige SMS senden."
+        ]
+    },
+    "queue": {
+        "database_path": "/var/lib/telepraxis-sms/outbox.sqlite",
+        "delivery_provider": "fritz",
+        "poll_interval_seconds": 2,
+        "busy_timeout_ms": 1000
+    },
+    "fritzbox": {
+        "host": "https://fritz.box",
+        "username": "###CHANGE_ME###",
+        "password": "###CHANGE_ME###",
+        "totp_secret": "###CHANGE_ME###",
+        "verify_tls": true,
+        "timeout_seconds": 20,
+        "delete_after_send": true
+    }
+}

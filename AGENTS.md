@@ -2,7 +2,7 @@
 
 ## Projektkontext
 
-Dieses Projekt umfasst die Telepraxis-App und einen verschluesselten JSON-Transport zwischen Quellserver und Zielsystem. Eingehende JSON-Daten werden auf dem Quellsystem direkt verschluesselt gespeichert, vom Zielsystem per SSH/SCP abgeholt, lokal entschluesselt, validiert und anschliessend lokal sowie remote bereinigt.
+Dieses Projekt umfasst die kienzlefon app (bisher telepraxis-app) und einen verschluesselten JSON-Transport zwischen Quellserver und Zielsystem. Eingehende JSON-Daten werden auf dem Quellsystem direkt verschluesselt gespeichert, vom Zielsystem per SSH/SCP abgeholt, lokal entschluesselt, validiert und anschliessend lokal sowie remote bereinigt.
 
 Der aktuelle Architekturstand ist Mehrbenutzerbetrieb: Jeder Abrufkanal bekommt einen eigenen SSH-Benutzer auf dem Quellsystem und eine eigene Empfangsdatei `telepraxis-receive-<ssh-benutzer>.php`.
 

@@ -1,0 +1,11 @@
+{
+    "default_provider": "queue",
+    "sms": {
+        "max_text_length": 612
+    },
+    "queue": {
+        "database_path": "/var/lib/telepraxis-sms/outbox.sqlite",
+        "delivery_provider": "fritz",
+        "busy_timeout_ms": 1000
+    }
+}
